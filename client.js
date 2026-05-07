@@ -6,6 +6,13 @@
   let currentGame = null;
   let playerName = null;
   let playerColor = null;
+  let gameKey = null;
+  const TOWERS = ["100", "200", "300", "400", "500", "600"];
+  
+  // Generate a random key for games
+  function generateKey() {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  }
   
   // Initialize Socket.IO connection
   function initSocket() {
@@ -20,28 +27,39 @@
       showStatus('Disconnected from server', 'error');
     });
     
-    socket.on('error', (err) => {
-      showStatus(`Server error: ${err}`, 'error');
+    socket.on('server:game-created', (data) => {
+      currentGame = data.state || data;
+      showStatus(`Game created! Select your tower.`, 'success');
+      renderTowerSelection();
     });
     
-    socket.on('server:game-created', (game) => {
-      currentGame = game;
-      renderGameUI(game);
-      showStatus(`Game created! ID: ${game.gameId}`, 'success');
+    socket.on('server:player-added', (data) => {
+      currentGame = data.state || data;
+      renderGameUI(currentGame);
+      showStatus(`Player added to game!`, 'success');
     });
     
     socket.on('server:player-joined', (data) => {
-      if (currentGame) {
-        currentGame = data.game || data;
-        renderGameUI(currentGame);
-        showStatus(`${data.playerName} joined the game`, 'info');
-      }
+      currentGame = data.state || data;
+      renderGameUI(currentGame);
+      showStatus(`${data.playerName} joined the game`, 'info');
     });
     
-    socket.on('server:game-started', (game) => {
-      currentGame = game;
-      renderGameUI(game);
+    socket.on('server:game-started', (data) => {
+      currentGame = data.state || data;
+      renderGameUI(currentGame);
       showStatus(`Game started!`, 'success');
+    });
+    
+    socket.on('server:state-snapshot', (data) => {
+      if (data.state) {
+        currentGame = data.state;
+        if (document.getElementById('tower-selection-panel')) {
+          renderTowerSelection();
+        } else if (document.getElementById('game-ui-panel')) {
+          renderGameUI(currentGame);
+        }
+      }
     });
     
     socket.on('server:error', (error) => {
@@ -53,36 +71,63 @@
   function renderGameLobby() {
     panelContent.innerHTML = `
       <div class="tabs">
-        <button class="tab-button active" onclick="switchTab('lobby')">Lobby</button>
-        <button class="tab-button" onclick="switchTab('game')">Game</button>
+        <button class="tab-button active">Lobby</button>
+        <button class="tab-button">Game</button>
       </div>
       
-      <div id="lobby-tab">
-        <div class="panel-section">
-          <h3>Create Game</h3>
-          <div class="form-group">
-            <label for="player-name">Player Name</label>
-            <input type="text" id="player-name" placeholder="Enter your name" />
-          </div>
-          <div class="form-group">
-            <label for="player-color">Color</label>
-            <select id="player-color">
-              <option value="#FF0000">Red</option>
-              <option value="#00FF00">Green</option>
-              <option value="#0000FF">Blue</option>
-              <option value="#FFFF00">Yellow</option>
-              <option value="#FF00FF">Magenta</option>
-              <option value="#00FFFF">Cyan</option>
-            </select>
-          </div>
-          <button class="primary" onclick="createGame()">Create Game</button>
+      <div class="panel-section">
+        <h3>Create Game</h3>
+        <div class="form-group">
+          <label for="player-name">Player Name</label>
+          <input type="text" id="player-name" placeholder="Enter your name" />
         </div>
-        
-        <div class="panel-section">
-          <h3>Available Games</h3>
-          <div id="games-list" class="game-list">
-            <div style="text-align: center; color: #888; padding: 1rem;">Loading games...</div>
-          </div>
+        <div class="form-group">
+          <label for="player-color">Color</label>
+          <select id="player-color">
+            <option value="#FF0000">Red</option>
+            <option value="#00FF00">Green</option>
+            <option value="#0000FF">Blue</option>
+            <option value="#FFFF00">Yellow</option>
+            <option value="#FF00FF">Magenta</option>
+            <option value="#00FFFF">Cyan</option>
+          </select>
+        </div>
+        <button class="primary" onclick="createGame()">Create Game</button>
+      </div>
+      
+      <div class="panel-section">
+        <h3>Available Games</h3>
+        <div id="games-list" class="game-list">
+          <div style="text-align: center; color: #888; padding: 1rem;">Loading games...</div>
+        </div>
+      </div>
+      
+      <div id="status" class="status" style="display: none;"></div>
+    `;
+  }
+  
+  // Render tower selection UI
+  function renderTowerSelection() {
+    const usedTowers = currentGame.players ? 
+      currentGame.players.map(p => p.towerTile).filter(t => t) : [];
+    
+    panelContent.innerHTML = `
+      <div id="tower-selection-panel" class="panel-section">
+        <h3>Select Your Tower</h3>
+        <p style="font-size: 0.85rem; color: #999; margin-bottom: 1rem;">
+          Choose one of the six towers around the board.
+        </p>
+        <div class="tower-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
+          ${TOWERS.map(tower => `
+            <button 
+              class="tower-button ${usedTowers.includes(tower) ? 'taken' : ''}"
+              onclick="selectTower('${tower}')"
+              ${usedTowers.includes(tower) ? 'disabled' : ''}
+            >
+              <div class="tower-id">Tower ${tower}</div>
+              <div class="tower-status">${usedTowers.includes(tower) ? 'Taken' : 'Available'}</div>
+            </button>
+          `).join('')}
         </div>
       </div>
       
@@ -92,32 +137,35 @@
   
   // Render game UI
   function renderGameUI(game) {
+    if (!game) return;
+    
     panelContent.innerHTML = `
-      <div class="panel-section">
+      <div id="game-ui-panel" class="panel-section">
         <h3>Game: ${game.gameId}</h3>
         <div style="font-size: 0.85rem; color: #999; margin-bottom: 0.5rem;">
           Phase: <strong>${game.phase}</strong>
         </div>
         <div style="font-size: 0.85rem; color: #999; margin-bottom: 1rem;">
-          Players: ${game.players.length}
+          Players: ${game.players ? game.players.length : 0}
         </div>
         
         <div style="max-height: 120px; overflow-y: auto; border: 1px solid #555; border-radius: 4px; padding: 0.5rem; margin-bottom: 1rem;">
           <ul style="list-style: none; padding: 0; margin: 0;">
-            ${game.players.map(p => `
+            ${game.players ? game.players.map(p => `
               <li style="padding: 0.3rem; color: #ccc; font-size: 0.85rem;">
-                ${p.playerName} 
                 <span style="color: ${p.playerColor || '#999'};">●</span>
+                ${p.playerName}
+                ${p.towerTile ? ` (Tower ${p.towerTile})` : ''}
               </li>
-            `).join('')}
+            `).join('') : ''}
           </ul>
         </div>
         
         ${game.phase === 'LOBBY' ? `
           <button class="primary" onclick="startGame()">Start Game</button>
         ` : `
-          <div class="status" style="display: block; margin-bottom: 0;">
-            Waiting for phase: ${game.phase}
+          <div class="status" style="display: block; margin-bottom: 0; border: 1px solid #555;">
+            Phase: ${game.phase}
           </div>
         `}
       </div>
@@ -134,10 +182,6 @@
     statusEl.style.display = 'block';
   }
   
-  window.switchTab = function(tab) {
-    // Tab switching logic would go here
-  };
-  
   window.createGame = function() {
     const nameInput = document.getElementById('player-name');
     const colorSelect = document.getElementById('player-color');
@@ -152,30 +196,62 @@
       return;
     }
     
-    if (!socket) {
+    if (!socket || !socket.connected) {
       showStatus('Not connected to server', 'error');
       return;
     }
     
+    // Generate game ID and key
+    const gameId = `game_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    gameKey = generateKey();
+    
     socket.emit('client:create-game', {
+      gameId,
+      gameKey
+    }, (error, response) => {
+      if (error) {
+        showStatus(`Error: ${error.message || error}`, 'error');
+      } else {
+        currentGame = response;
+        renderTowerSelection();
+      }
+    });
+  };
+  
+  window.selectTower = function(tower) {
+    if (!socket || !socket.connected) {
+      showStatus('Not connected to server', 'error');
+      return;
+    }
+    
+    if (!currentGame) {
+      showStatus('No game selected', 'error');
+      return;
+    }
+    
+    socket.emit('client:add-player', {
+      gameId: currentGame.gameId,
       playerName,
-      playerColor
-    }, (response) => {
-      if (response && response.error) {
-        showStatus(`Error: ${response.error}`, 'error');
+      playerColor,
+      towerTile: tower
+    }, (error, response) => {
+      if (error) {
+        showStatus(`Error: ${error.message || error}`, 'error');
       }
     });
   };
   
   window.startGame = function() {
-    if (!currentGame) return;
-    if (!socket) return;
+    if (!currentGame || !socket || !socket.connected) {
+      showStatus('Not connected to server', 'error');
+      return;
+    }
     
     socket.emit('client:start-game', {
       gameId: currentGame.gameId
-    }, (response) => {
-      if (response && response.error) {
-        showStatus(`Error: ${response.error}`, 'error');
+    }, (error, response) => {
+      if (error) {
+        showStatus(`Error: ${error.message || error}`, 'error');
       }
     });
   };
@@ -185,24 +261,30 @@
     if (!nameInput) return;
     
     playerName = nameInput.value.trim();
+    playerColor = document.getElementById('player-color')?.value || '#FFFFFF';
     
     if (!playerName) {
       showStatus('Please enter a player name', 'error');
       return;
     }
     
-    if (!socket) {
+    if (!socket || !socket.connected) {
       showStatus('Not connected to server', 'error');
       return;
     }
     
+    // For joining, we need the game key - for now, just use a placeholder
+    gameKey = generateKey();
+    
     socket.emit('client:join-game', {
       gameId,
-      playerName,
-      playerColor: '#FFFFFF'
-    }, (response) => {
-      if (response && response.error) {
-        showStatus(`Error: ${response.error}`, 'error');
+      gameKey
+    }, (error, response) => {
+      if (error) {
+        showStatus(`Error: ${error.message || error}`, 'error');
+      } else {
+        currentGame = response;
+        renderTowerSelection();
       }
     });
   };
@@ -227,7 +309,7 @@
           <div class="game-list-item">
             <div>
               <div style="font-weight: bold; color: #f0e055;">${game.gameId}</div>
-              <div style="font-size: 0.8rem; color: #999;">${game.players.length} players</div>
+              <div style="font-size: 0.8rem; color: #999;">${game.players ? game.players.length : 0} players</div>
             </div>
             <button style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="joinGame('${game.gameId}')">
               Join
