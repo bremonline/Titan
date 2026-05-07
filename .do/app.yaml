@@ -1,0 +1,15 @@
+name: titan
+region: nyc
+services:
+  - name: titan-web
+    github:
+      repo: bremonline/Titan
+      branch: main
+      deploy_on_push: true
+    source_dir: /
+    dockerfile_path: Dockerfile
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
