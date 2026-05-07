@@ -1115,7 +1115,7 @@
           }
         }
 
-        async connect(serverUrl = "http://localhost:3000") {
+        async connect(serverUrl = window.location.origin) {
           return new Promise((resolve, reject) => {
             const clientId = this.getStoredClientId();
             this.socket = io(serverUrl, {
@@ -1415,7 +1415,7 @@
       }
 
       async function fetchActiveGames() {
-        const response = await fetch("http://localhost:3000/api/games");
+        const response = await fetch(`${window.location.origin}/api/games`);
         if (!response.ok) {
           throw new Error("Could not load active games");
         }
@@ -1423,7 +1423,7 @@
       }
 
       async function fetchGameState(gameId) {
-        const response = await fetch(`http://localhost:3000/api/game/${encodeURIComponent(gameId)}`);
+        const response = await fetch(`${window.location.origin}/api/game/${encodeURIComponent(gameId)}`);
         if (!response.ok) {
           throw new Error("Could not load game state");
         }
@@ -1432,7 +1432,7 @@
 
       async function fetchValidDestinations(fromTile, dieRoll) {
         const response = await fetch(
-          `http://localhost:3000/api/movement/${encodeURIComponent(fromTile)}/${encodeURIComponent(String(dieRoll))}`,
+          `${window.location.origin}/api/movement/${encodeURIComponent(fromTile)}/${encodeURIComponent(String(dieRoll))}`,
         );
         if (!response.ok) {
           throw new Error("Could not load movement preview");
@@ -3582,7 +3582,7 @@
 
       async function clearAllGames() {
         try {
-          const response = await fetch("http://localhost:3000/api/admin/games/clear?admin=true", {
+          const response = await fetch(`${window.location.origin}/api/admin/games/clear?admin=true`, {
             method: "POST",
           });
 
