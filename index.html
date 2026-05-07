@@ -175,6 +175,71 @@
         text-transform: uppercase;
       }
 
+      .connection-banner {
+        margin-top: 0.75rem;
+        padding: 0.5rem 0.6rem;
+        border-radius: 6px;
+        border: 1px solid #6f5a3a;
+        background: rgba(0, 0, 0, 0.35);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .connection-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: #d6b469;
+        box-shadow: 0 0 0 3px rgba(214, 180, 105, 0.18);
+      }
+
+      .connection-text {
+        font-size: 0.82rem;
+        color: #f0e7cf;
+        line-height: 1.2;
+      }
+
+      .connection-retry {
+        margin-left: auto;
+        padding: 0.24rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid #9f7a4a;
+        background: rgba(111, 76, 30, 0.35);
+        color: #f3d9b2;
+        font-size: 0.74rem;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .connection-banner.is-connected {
+        border-color: rgba(76, 175, 80, 0.55);
+        background: rgba(20, 60, 25, 0.35);
+      }
+
+      .connection-banner.is-connected .connection-dot {
+        background: #4caf50;
+        box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
+      }
+
+      .connection-banner.is-connecting,
+      .connection-banner.is-reconnecting {
+        border-color: rgba(214, 180, 105, 0.55);
+      }
+
+      .connection-banner.is-offline,
+      .connection-banner.is-failed {
+        border-color: rgba(255, 82, 82, 0.55);
+        background: rgba(75, 18, 18, 0.35);
+      }
+
+      .connection-banner.is-offline .connection-dot,
+      .connection-banner.is-failed .connection-dot {
+        background: #ff5252;
+        box-shadow: 0 0 0 3px rgba(255, 82, 82, 0.2);
+      }
+
       .panel-content {
         padding: 1.5rem;
         flex: 1;
@@ -634,6 +699,11 @@
     <div id="game-panel" class="game-panel">
       <div class="panel-header">
         <h2 id="panel-title">TITAN</h2>
+        <div id="connection-banner" class="connection-banner is-connecting" role="status" aria-live="polite">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span id="connection-text" class="connection-text">Connecting to server...</span>
+          <button id="connection-retry" class="connection-retry" type="button" style="display:none;">Retry</button>
+        </div>
       </div>
       <div id="panel-content" class="panel-content">
         <!-- Dynamically populated -->
@@ -1278,6 +1348,35 @@
         registerInternalListeners() {
           if (!this.socket) return;
 
+          this.socket.on("connect", () => {
+            this.notifyListeners("client:connection", { state: "connected" });
+          });
+
+          this.socket.on("disconnect", (reason) => {
+            this.notifyListeners("client:connection", { state: "offline", reason });
+          });
+
+          this.socket.on("connect_error", (error) => {
+            this.notifyListeners("client:connection", {
+              state: "failed",
+              message: error?.message || "Could not connect to server",
+            });
+          });
+
+          this.socket.io.on("reconnect_attempt", (attempt) => {
+            this.notifyListeners("client:connection", {
+              state: "reconnecting",
+              attempt,
+            });
+          });
+
+          this.socket.io.on("reconnect_failed", () => {
+            this.notifyListeners("client:connection", {
+              state: "failed",
+              message: "Reconnection attempts exhausted",
+            });
+          });
+
           this.socket.on("server:game-created", (data) => {
             this.gameId = data.gameId;
             this.playerId = data.playerId;
@@ -1380,13 +1479,54 @@
       let isGameMaster = false;
       let clientId = "";
       let movePreviewTile = "";
+      let realtimeEventsBound = false;
 
       const panelContent = document.getElementById("panel-content");
       const panelTitle = document.getElementById("panel-title");
+      const connectionBanner = document.getElementById("connection-banner");
+      const connectionText = document.getElementById("connection-text");
+      const connectionRetry = document.getElementById("connection-retry");
       const worldBoardShell = document.getElementById("world-board-shell");
       const battleBoardShell = document.getElementById("battle-board-shell");
       const battleMainStage = document.getElementById("battle-main-stage");
       const battleMainMeta = document.getElementById("battle-main-meta");
+
+      function updateConnectionBanner(state, message = "") {
+        if (!connectionBanner || !connectionText || !connectionRetry) {
+          return;
+        }
+
+        const labels = {
+          connected: "Connected to server",
+          connecting: "Connecting to server...",
+          reconnecting: "Connection lost. Reconnecting...",
+          offline: "Server connection lost",
+          failed: "Unable to connect to server",
+        };
+
+        const normalizedState = labels[state] ? state : "connecting";
+        connectionBanner.className = `connection-banner is-${normalizedState}`;
+        connectionText.textContent = message || labels[normalizedState];
+        connectionRetry.style.display =
+          normalizedState === "offline" || normalizedState === "failed" ? "inline-flex" : "none";
+      }
+
+      async function retryConnectionFromBanner() {
+        updateConnectionBanner("connecting", "Retrying connection...");
+        try {
+          client.disconnect();
+          await client.connect(window.location.origin);
+          updateConnectionBanner("connected");
+          showStatus("Reconnected to server.", "success");
+          if (!activeGameId) {
+            await showLobby();
+          }
+        } catch (error) {
+          updateConnectionBanner("failed", error.message || "Retry failed");
+        }
+      }
+
+      connectionRetry?.addEventListener("click", retryConnectionFromBanner);
 
       function setMainBoardMode(mode, options = {}) {
         if (!worldBoardShell || !battleBoardShell || !battleMainStage || !battleMainMeta) {
@@ -3493,8 +3633,10 @@
         try {
           bindBoardPreviewClicks();
           isAdminMode = new URLSearchParams(window.location.search).get("admin") === "true";
-          await client.connect(window.location.origin);
           wireRealtimeEvents();
+          updateConnectionBanner("connecting");
+          await client.connect(window.location.origin);
+          updateConnectionBanner("connected");
           const invite = readInviteParams();
           if (invite.gameId && invite.gameKey) {
             await joinGameFromInvite(invite.gameId, invite.gameKey);
@@ -3525,6 +3667,7 @@
 
           showLobby();
         } catch (error) {
+          updateConnectionBanner("failed", error.message || "Unable to connect to server");
           showError("Failed to connect to server: " + error.message);
         }
       }
@@ -3734,6 +3877,31 @@
       }
 
       function wireRealtimeEvents() {
+        if (realtimeEventsBound) {
+          return;
+        }
+        realtimeEventsBound = true;
+
+        client.on("client:connection", (data) => {
+          const state = data?.state || "connecting";
+          if (state === "connected") {
+            updateConnectionBanner("connected");
+            return;
+          }
+          if (state === "reconnecting") {
+            const attempt = Number(data.attempt || 1);
+            updateConnectionBanner("reconnecting", `Connection lost. Reconnecting (attempt ${attempt})...`);
+            return;
+          }
+          if (state === "offline") {
+            updateConnectionBanner("offline", "Server connection lost. Trying again...");
+            return;
+          }
+          if (state === "failed") {
+            updateConnectionBanner("failed", data?.message || "Unable to connect to server");
+          }
+        });
+
         client.on("server:player-joined", () => {
           if (activeTab === "lobby") {
             showLobby();
