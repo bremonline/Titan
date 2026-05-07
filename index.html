@@ -1111,7 +1111,7 @@
     </script>
 
     <!-- Socket.IO Client -->
-    <script src="/socket.io/socket.io.js"></script>
+    <script id="socket-io-client" src="/socket.io/socket.io.js"></script>
 
     <!-- Game Client Integration -->
     <script>
@@ -1190,38 +1190,81 @@
             return;
           }
 
-          const scriptSrc = `${window.location.origin}/socket.io/socket.io.js`;
-          let script = document.querySelector(`script[src="${scriptSrc}"]`);
+          const socketPath = "/socket.io/socket.io.js";
+          const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+          const localHint = isLocalHost ? " Start local server with: cd server && npm run dev." : "";
+
+          const isSocketIoScript = (candidate) => {
+            const rawSrc = candidate?.getAttribute("src") || "";
+            if (!rawSrc) {
+              return false;
+            }
+            try {
+              return new URL(rawSrc, window.location.origin).pathname === socketPath;
+            } catch (error) {
+              return rawSrc === socketPath;
+            }
+          };
+
+          let script = document.getElementById("socket-io-client");
+          if (!script || !isSocketIoScript(script)) {
+            script = Array.from(document.querySelectorAll("script")).find(isSocketIoScript) || null;
+          }
 
           if (!script) {
             script = document.createElement("script");
-            script.src = scriptSrc;
+            script.id = "socket-io-client";
+            script.src = socketPath;
             script.async = true;
             document.head.appendChild(script);
           }
 
           await new Promise((resolve, reject) => {
+            let settled = false;
             let attempts = 0;
-            const maxAttempts = 20;
+            const maxAttempts = 80;
+
+            const complete = (result, value) => {
+              if (settled) {
+                return;
+              }
+              settled = true;
+              result(value);
+            };
+
+            const onLoad = () => {
+              if (typeof window.io === "function") {
+                complete(resolve);
+              }
+            };
+
+            const onError = () => {
+              complete(
+                reject,
+                new Error(`Socket.IO client script failed to load.${localHint}`)
+              );
+            };
 
             const check = () => {
               if (typeof window.io === "function") {
-                resolve();
+                complete(resolve);
                 return;
               }
 
               attempts += 1;
               if (attempts >= maxAttempts) {
-                reject(new Error("Socket.IO client did not load"));
+                complete(
+                  reject,
+                  new Error(`Socket.IO client did not initialize.${localHint}`)
+                );
                 return;
               }
 
               setTimeout(check, 250);
             };
 
-            script.addEventListener("error", () => {
-              reject(new Error("Failed to load Socket.IO client"));
-            }, { once: true });
+            script.addEventListener("load", onLoad, { once: true });
+            script.addEventListener("error", onError, { once: true });
 
             check();
           });
@@ -1480,6 +1523,7 @@
       let clientId = "";
       let movePreviewTile = "";
       let realtimeEventsBound = false;
+      const isLocalEnvironment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
       const panelContent = document.getElementById("panel-content");
       const panelTitle = document.getElementById("panel-title");
@@ -1498,10 +1542,16 @@
 
         const labels = {
           connected: "Connected to server",
-          connecting: "Connecting to server...",
-          reconnecting: "Connection lost. Reconnecting...",
-          offline: "Server connection lost",
-          failed: "Unable to connect to server",
+          connecting: isLocalEnvironment ? "Connecting to local server..." : "Connecting to server...",
+          reconnecting: isLocalEnvironment
+            ? "Local server not reachable. Retrying..."
+            : "Connection lost. Reconnecting...",
+          offline: isLocalEnvironment
+            ? "Local server disconnected"
+            : "Server connection lost",
+          failed: isLocalEnvironment
+            ? "Cannot reach local server (run npm run dev in server/)"
+            : "Unable to connect to server",
         };
 
         const normalizedState = labels[state] ? state : "connecting";
@@ -3890,11 +3940,19 @@
           }
           if (state === "reconnecting") {
             const attempt = Number(data.attempt || 1);
-            updateConnectionBanner("reconnecting", `Connection lost. Reconnecting (attempt ${attempt})...`);
+            const reconnectMessage = isLocalEnvironment
+              ? `Local server unavailable. Retrying (attempt ${attempt})...`
+              : `Connection lost. Reconnecting (attempt ${attempt})...`;
+            updateConnectionBanner("reconnecting", reconnectMessage);
             return;
           }
           if (state === "offline") {
-            updateConnectionBanner("offline", "Server connection lost. Trying again...");
+            updateConnectionBanner(
+              "offline",
+              isLocalEnvironment
+                ? "Local server is offline. Start it with npm run dev in server/."
+                : "Server connection lost. Trying again..."
+            );
             return;
           }
           if (state === "failed") {
