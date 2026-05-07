@@ -61,6 +61,14 @@ app.get("/api/games", (_req: Request, res: Response) => {
 });
 
 /**
+ * Serve the browser Socket.IO client from an API path that is routed to this server
+ * in production environments.
+ */
+app.get("/api/socket.io-client.js", (_req: Request, res: Response) => {
+  res.sendFile(path.join(socketIoClientDir, "socket.io.min.js"));
+});
+
+/**
  * Get game state (for debugging/UI sync)
  */
 app.get("/api/game/:gameId", (req: Request, res: Response) => {

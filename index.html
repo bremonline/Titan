@@ -1111,7 +1111,7 @@
     </script>
 
     <!-- Socket.IO Client -->
-    <script id="socket-io-client" src="/vendor/socket.io-client/socket.io.min.js"></script>
+    <script id="socket-io-client" src="/api/socket.io-client.js"></script>
 
     <!-- Game Client Integration -->
     <script>
@@ -1190,7 +1190,7 @@
             return;
           }
 
-          const socketPath = "/vendor/socket.io-client/socket.io.min.js";
+          const socketPath = "/api/socket.io-client.js";
           const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
           const localHint = isLocalHost ? " Start local server with: cd server && npm run dev." : "";
 
