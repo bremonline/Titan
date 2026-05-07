@@ -1480,6 +1480,7 @@
       let clientId = "";
       let movePreviewTile = "";
       let realtimeEventsBound = false;
+      const isLocalEnvironment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
       const panelContent = document.getElementById("panel-content");
       const panelTitle = document.getElementById("panel-title");
@@ -1498,10 +1499,16 @@
 
         const labels = {
           connected: "Connected to server",
-          connecting: "Connecting to server...",
-          reconnecting: "Connection lost. Reconnecting...",
-          offline: "Server connection lost",
-          failed: "Unable to connect to server",
+          connecting: isLocalEnvironment ? "Connecting to local server..." : "Connecting to server...",
+          reconnecting: isLocalEnvironment
+            ? "Local server not reachable. Retrying..."
+            : "Connection lost. Reconnecting...",
+          offline: isLocalEnvironment
+            ? "Local server disconnected"
+            : "Server connection lost",
+          failed: isLocalEnvironment
+            ? "Cannot reach local server (run npm run dev in server/)"
+            : "Unable to connect to server",
         };
 
         const normalizedState = labels[state] ? state : "connecting";
@@ -3890,11 +3897,19 @@
           }
           if (state === "reconnecting") {
             const attempt = Number(data.attempt || 1);
-            updateConnectionBanner("reconnecting", `Connection lost. Reconnecting (attempt ${attempt})...`);
+            const reconnectMessage = isLocalEnvironment
+              ? `Local server unavailable. Retrying (attempt ${attempt})...`
+              : `Connection lost. Reconnecting (attempt ${attempt})...`;
+            updateConnectionBanner("reconnecting", reconnectMessage);
             return;
           }
           if (state === "offline") {
-            updateConnectionBanner("offline", "Server connection lost. Trying again...");
+            updateConnectionBanner(
+              "offline",
+              isLocalEnvironment
+                ? "Local server is offline. Start it with npm run dev in server/."
+                : "Server connection lost. Trying again..."
+            );
             return;
           }
           if (state === "failed") {
