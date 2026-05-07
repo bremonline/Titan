@@ -3449,7 +3449,7 @@
         try {
           bindBoardPreviewClicks();
           isAdminMode = new URLSearchParams(window.location.search).get("admin") === "true";
-          await client.connect("http://localhost:3000");
+          await client.connect(window.location.origin);
           wireRealtimeEvents();
           const invite = readInviteParams();
           if (invite.gameId && invite.gameKey) {
@@ -5997,6 +5997,5 @@
       });
       client.on("server:log-entry", appendLogEntry);
     </script>
-    <script src="/client.js"></script>
   </body>
 </html>
