@@ -40,3 +40,60 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  server-coverage:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run coverage
+        run: npm run test:coverage
+
+      - name: Publish coverage summary
+        env:
+          COVERAGE_JSON: coverage/coverage-summary.json
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+
+          const coveragePath = process.env.COVERAGE_JSON;
+          const summary = JSON.parse(fs.readFileSync(coveragePath, "utf8")).total;
+
+          const formatPct = (metric) => Number(metric.pct).toFixed(2);
+          const table = [
+            "| Metric | Covered | Total | % |",
+            "|---|---:|---:|---:|",
+            `| Lines | ${summary.lines.covered} | ${summary.lines.total} | ${formatPct(summary.lines)} |`,
+            `| Statements | ${summary.statements.covered} | ${summary.statements.total} | ${formatPct(summary.statements)} |`,
+            `| Functions | ${summary.functions.covered} | ${summary.functions.total} | ${formatPct(summary.functions)} |`,
+            `| Branches | ${summary.branches.covered} | ${summary.branches.total} | ${formatPct(summary.branches)} |`,
+          ].join("\n");
+
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `## Server Coverage\n\n${table}\n`
+          );
+          NODE
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-coverage-report
+          path: server/coverage/
+          if-no-files-found: error
