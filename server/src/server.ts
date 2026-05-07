@@ -34,6 +34,12 @@ app.use(express.json());
 
 // Serve the Titan board and client assets from the project root
 const publicDir = path.resolve(__dirname, "../..");
+const socketIoClientDir = path.resolve(__dirname, "../node_modules/socket.io-client/dist");
+
+app.use(
+  "/vendor/socket.io-client",
+  express.static(socketIoClientDir, { index: false })
+);
 app.use(express.static(publicDir, { index: "index.html" }));
 
 // ============================================================================
