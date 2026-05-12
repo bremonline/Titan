@@ -59,6 +59,66 @@ describe("GameEngine", () => {
       const result = engine.joinGame("full-game", "key", "client-2");
       expect(result).toBeNull();
     });
+
+    it("allows reclaim join in started game with matching player name and color", () => {
+      const gameId = "started-reclaim";
+      engine.createGame(gameId, "key", "master");
+      engine.joinGame(gameId, "key", "client-1");
+      const added = engine.addPlayer(gameId, "client-1", "Player 1", "#FF0000", "100")!;
+      engine.startGame(gameId, "master");
+
+      const reclaimed = engine.joinGame(gameId, "key", "client-2", "Player 1", "#FF0000");
+      expect(reclaimed).not.toBeNull();
+      expect(reclaimed?.playerId).toBe(added.player.id);
+      expect(reclaimed?.displacedClientId).toBe("client-1");
+    });
+
+    it("rejects reclaim join in started game when name/color does not match", () => {
+      const gameId = "started-reclaim-invalid";
+      engine.createGame(gameId, "key", "master");
+      engine.joinGame(gameId, "key", "client-1");
+      engine.addPlayer(gameId, "client-1", "Player 1", "#FF0000", "100");
+      engine.startGame(gameId, "master");
+
+      const reclaimed = engine.joinGame(gameId, "key", "client-2", "Player 1", "#00FF00");
+      expect(reclaimed).toBeNull();
+    });
+
+    it("allows cross-client rejoin with a valid reconnect transfer token", () => {
+      const gameId = "reconnect-transfer";
+      engine.createGame(gameId, "key", "master");
+      engine.joinGame(gameId, "key", "client-1");
+      const added = engine.addPlayer(gameId, "client-1", "Player 1", "#FF0000", "100")!;
+      engine.startGame(gameId, "master");
+
+      const issued = engine.issueReconnectToken(gameId, "key", "client-1");
+      expect(issued).not.toBeNull();
+
+      const rejoin = engine.rejoinGame(gameId, "key", "other-client", issued!.transferToken);
+      expect(rejoin).not.toBeNull();
+      expect(rejoin?.playerId).toBe(added.player.id);
+      expect(rejoin?.clientId).toBe("other-client");
+
+      const oldClientRejoin = engine.rejoinGame(gameId, "key", "client-1");
+      expect(oldClientRejoin).toBeNull();
+    });
+
+    it("rejects reconnect transfer token reuse", () => {
+      const gameId = "reconnect-transfer-single-use";
+      engine.createGame(gameId, "key", "master");
+      engine.joinGame(gameId, "key", "client-1");
+      const added = engine.addPlayer(gameId, "client-1", "Player 1", "#FF0000", "100")!;
+
+      const issued = engine.issueReconnectToken(gameId, "key", "client-1");
+      expect(issued).not.toBeNull();
+
+      const firstUse = engine.rejoinGame(gameId, "key", "other-client", issued!.transferToken);
+      expect(firstUse).not.toBeNull();
+      expect(firstUse?.playerId).toBe(added.player.id);
+
+      const secondUse = engine.rejoinGame(gameId, "key", "third-client", issued!.transferToken);
+      expect(secondUse).toBeNull();
+    });
   });
 
   describe("Player Management", () => {
@@ -309,10 +369,6 @@ describe("GameEngine", () => {
 
       engine.endPhase(gameId, playerId);
       game = engine.getGame(gameId)!;
-      expect(game.phase).toBe(Phase.FIGHT);
-
-      engine.endPhase(gameId, playerId);
-      game = engine.getGame(gameId)!;
       expect(game.phase).toBe(Phase.RECRUIT);
 
       engine.endPhase(gameId, playerId);
@@ -335,10 +391,6 @@ describe("GameEngine", () => {
       engine.endPhase(gameId, p1);
       game = engine.getGame(gameId)!;
       expect(game.activePlayer).toBe(p1); // Still p1's MOVE phase
-
-      engine.endPhase(gameId, p1);
-      game = engine.getGame(gameId)!;
-      expect(game.activePlayer).toBe(p1); // Still p1's FIGHT phase
 
       engine.endPhase(gameId, p1);
       game = engine.getGame(gameId)!;
@@ -379,6 +431,49 @@ describe("GameEngine", () => {
       engine.endPhase(gameId, playerId);
       game = engine.getGame(gameId)!;
       expect(game.movedLegionsThisTurn).toEqual([]);
+    });
+
+    it("skips FIGHT when MOVE ends without pending battles", () => {
+      const create = engine.createGame("skip-fight", "key", "master");
+      const gameId = create!.gameId;
+      const player = engine.addPlayer(gameId, "master", "Player 1", "#FF0000", "100")!;
+      const playerId = player.player.id;
+      engine.startGame(gameId, "master");
+
+      const game = engine.getGame(gameId)!;
+      game.phase = Phase.MOVE;
+      game.activePlayer = playerId;
+      game.dieRoll = 4;
+
+      engine.endPhase(gameId, playerId);
+
+      expect(game.phase).toBe(Phase.RECRUIT);
+      expect(game.activePlayer).toBe(playerId);
+      expect(game.dieRoll).toBeNull();
+    });
+
+    it("keeps FIGHT when MOVE ends with a pending battle", () => {
+      const create = engine.createGame("keep-fight", "key", "master");
+      const gameId = create!.gameId;
+      const first = engine.addPlayer(gameId, "master", "Player 1", "#FF0000", "100")!;
+      const second = engine.addPlayer(gameId, "client-2", "Player 2", "#00FF00", "200")!;
+      engine.startGame(gameId, "master");
+
+      const game = engine.getGame(gameId)!;
+      game.phase = Phase.MOVE;
+      game.activePlayer = first.player.id;
+      game.dieRoll = 5;
+      game.tiles.set("211", {
+        id: "211",
+        terrainType: TerrainType.DESERT,
+        legions: [first.player.legions[0], second.player.legions[0]],
+      });
+
+      engine.endPhase(gameId, first.player.id);
+
+      expect(game.phase).toBe(Phase.FIGHT);
+      expect(game.activePlayer).toBe(first.player.id);
+      expect(game.dieRoll).toBeNull();
     });
   });
 

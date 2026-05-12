@@ -95,9 +95,32 @@
         filter: brightness(1.08) drop-shadow(0 8px 10px var(--triangle-shadow));
       }
 
+      .triangle-preview-target-attack {
+        stroke: #d34141;
+        stroke-width: 4;
+      }
+
       .triangle-preview-source {
         stroke: #ffffff;
         stroke-width: 4;
+      }
+
+      .move-target-attack {
+        background: #9b2525 !important;
+        border-color: #d85a5a !important;
+        color: #fff1f1 !important;
+      }
+
+      .move-target-attack:hover:not(:disabled) {
+        background: #b62f2f !important;
+        border-color: #ef7a7a !important;
+        color: #fff1f1 !important;
+      }
+
+      .triangle-admin-selected {
+        stroke: #ffe29a;
+        stroke-width: 4;
+        filter: brightness(1.12) drop-shadow(0 0 10px rgba(255, 226, 154, 0.55));
       }
 
       .triangle-special {
@@ -303,7 +326,7 @@
       }
 
       .game-list-item.inactive {
-        opacity: 0.42;
+        border-left: 2px solid #b89820;
       }
 
       .game-id-pill {
@@ -693,6 +716,97 @@
           padding: 1rem;
         }
       }
+
+      .recruitment-legend {
+        display: table;
+        width: 100%;
+        margin-bottom: 0.15rem;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+        line-height: 1.2;
+      }
+
+      .legend-row {
+        display: table-row;
+      }
+
+      .legend-column {
+        display: table-cell;
+        padding: 0.6rem 1rem;
+        vertical-align: top;
+        border: none;
+      }
+
+      .legend-title-cell {
+        font-size: 2.2rem;
+        font-weight: 600;
+        color: var(--panel-edge);
+        letter-spacing: 0.04em;
+        vertical-align: middle;
+        padding: 0 1rem 0 0;
+      }
+
+      .legend-entry {
+        margin-bottom: 0.6rem;
+      }
+
+      .legend-entry:last-child {
+        margin-bottom: 0;
+      }
+
+      .legend-terrain-name {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-weight: 600;
+        color: #f2eee2;
+        margin-bottom: 0.2rem;
+      }
+
+      .legend-color-swatch {
+        width: 14px;
+        height: 14px;
+        border-radius: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        flex-shrink: 0;
+      }
+
+      .legend-creatures {
+        color: #d9d9d9;
+        margin-left: 18px;
+        font-size: 0.7rem;
+      }
+
+      .winner-overlay {
+        position: absolute;
+        inset: 1rem;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        z-index: 40;
+        background: radial-gradient(circle at center, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.58));
+        border-radius: 18px;
+      }
+
+      .winner-overlay.is-visible {
+        display: flex;
+      }
+
+      .winner-overlay-text {
+        padding: 0.8rem 1.4rem;
+        border: 2px solid rgba(255, 230, 154, 0.8);
+        border-radius: 10px;
+        background: rgba(17, 11, 5, 0.88);
+        color: #ffe29a;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        text-align: center;
+        text-shadow: 0 2px 18px rgba(255, 226, 154, 0.45);
+        line-height: 1.1;
+        font-size: clamp(1.6rem, 4.8vw, 4rem);
+      }
     </style>
   </head>
   <body>
@@ -709,10 +823,11 @@
         <!-- Dynamically populated -->
       </div>
     </div>
-    <main>
-      <section id="world-board-shell" class="board-shell">
-        <h1>Titan Board Prototype</h1>
-        <p data-summary>Four rings: 6 inner triangles, 18 second-ring triangles, 30 third-ring triangles, and 42 fourth-ring triangles.</p>
+    <main style="position: relative;">
+      <section id="world-board-shell" class="board-shell" style="position: relative;">
+        <div id="recruitment-legend" class="recruitment-legend" style="display: none;">
+          <div id="legend-content"></div>
+        </div>
 
         <svg viewBox="0 0 1080 1080" role="img" aria-label="A four-ring Titan board center made from 96 triangles with a hex at every triangle vertex">
 
@@ -732,7 +847,7 @@
         <h2 class="battle-main-header">Battle Board</h2>
         <p id="battle-main-meta" class="battle-main-meta">Waiting for battle...</p>
         <div class="battle-main-scroll">
-          <div id="battle-main-stage-wrap" style="position:relative;display:block;width:980px;min-width:980px;">
+          <div id="battle-main-stage-wrap" style="position:relative;display:block;width:100%;max-width:980px;min-width:0;margin:0 auto;">
             <div id="battle-main-stage"></div>
             <div id="battle-overlay-left" style="display:none;position:absolute;top:0.55rem;left:0.55rem;display:flex;flex-direction:column;gap:4px;z-index:10;"></div>
             <div id="battle-overlay-right" style="display:none;position:absolute;top:0.55rem;right:0.55rem;display:flex;flex-direction:column;gap:4px;align-items:flex-end;z-index:10;"></div>
@@ -742,6 +857,10 @@
           </div>
         </div>
       </section>
+
+      <div id="winner-overlay" class="winner-overlay" aria-live="polite" role="status">
+        <div id="winner-overlay-text" class="winner-overlay-text"></div>
+      </div>
     </main>
     <script>
       const ringCount = 4;
@@ -1068,6 +1187,10 @@
         triangle.displayNumber = specialLabelMap.get(triangle.number) ?? triangle.number;
         triangle.specialNumber = isSpecialLabel;
         triangle.terrainType = terrainByNumber.get(triangle.number) ?? "plains";
+        const terrainLabel = String(triangle.terrainType)
+          .toLowerCase()
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
         polygon.setAttribute("class", "triangle");
 
@@ -1080,6 +1203,12 @@
 
         polygon.setAttribute("points", triangle.key);
         polygon.dataset.tileId = triangle.displayNumber;
+        polygon.dataset.terrainType = triangle.terrainType;
+        polygon.dataset.baseHoverText = `Tile ${triangle.displayNumber} - ${terrainLabel}`;
+        polygon.setAttribute("title", `Tile ${triangle.displayNumber} - ${terrainLabel}`);
+        const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = `Tile ${triangle.displayNumber} - ${terrainLabel}`;
+        polygon.appendChild(title);
         triangleLayer.appendChild(polygon);
         triangleElementsById.set(triangle.displayNumber, polygon);
 
@@ -1311,8 +1440,8 @@
           return this.emit("client:create-game", { gameId, gameKey });
         }
 
-        async joinGame(gameId, gameKey) {
-          return this.emit("client:join-game", { gameId, gameKey });
+        async joinGame(gameId, gameKey, playerName, playerColor) {
+          return this.emit("client:join-game", { gameId, gameKey, ...(playerName ? { playerName, playerColor } : {}) });
         }
 
         async rejoinGame(gameId, gameKey) {
@@ -1321,6 +1450,10 @@
 
         async addPlayer(gameId, playerName, playerColor, towerTile) {
           return this.emit("client:add-player", { gameId, playerName, playerColor, towerTile });
+        }
+
+        async addAiPlayer(gameId, playerName, playerColor, towerTile, aiPlayStyle) {
+          return this.emit("client:add-ai-player", { gameId, playerName, playerColor, towerTile, aiPlayStyle });
         }
 
         async startGame(gameId) {
@@ -1522,6 +1655,7 @@
       let isGameMaster = false;
       let clientId = "";
       let movePreviewTile = "";
+      let adminPlacementTile = "";
       let realtimeEventsBound = false;
       const isLocalEnvironment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
@@ -1534,6 +1668,49 @@
       const battleBoardShell = document.getElementById("battle-board-shell");
       const battleMainStage = document.getElementById("battle-main-stage");
       const battleMainMeta = document.getElementById("battle-main-meta");
+      const winnerOverlay = document.getElementById("winner-overlay");
+      const winnerOverlayText = document.getElementById("winner-overlay-text");
+      let winnerOverlayName = "";
+
+      function setWinnerOverlay(name = "") {
+        if (!winnerOverlay || !winnerOverlayText) {
+          return;
+        }
+
+        const winnerName = String(name || "").trim();
+        winnerOverlayName = winnerName;
+        if (!winnerName) {
+          winnerOverlay.classList.remove("is-visible");
+          winnerOverlayText.textContent = "";
+          return;
+        }
+
+        winnerOverlayText.textContent = `${winnerName} WINS!`;
+        winnerOverlay.classList.add("is-visible");
+      }
+
+      function getWinnerNameFromState(state) {
+        const players = state?.players || [];
+        if (!Array.isArray(players) || players.length < 2) {
+          return "";
+        }
+        const activePlayers = players.filter((player) => player.status === "ACTIVE");
+        if (activePlayers.length !== 1) {
+          return "";
+        }
+        return String(activePlayers[0]?.name || "").trim();
+      }
+
+      function syncWinnerOverlayFromState(state) {
+        const winnerName = getWinnerNameFromState(state);
+        if (winnerName) {
+          setWinnerOverlay(winnerName);
+          return;
+        }
+        if (!winnerOverlayName) {
+          setWinnerOverlay("");
+        }
+      }
 
       function updateConnectionBanner(state, message = "") {
         if (!connectionBanner || !connectionText || !connectionRetry) {
@@ -1578,6 +1755,92 @@
 
       connectionRetry?.addEventListener("click", retryConnectionFromBanner);
 
+      function populateRecruitmentLegend() {
+        const legendContent = document.getElementById("legend-content");
+        const recruitmentLegend = document.getElementById("recruitment-legend");
+        if (!legendContent || !recruitmentLegend) {
+          return;
+        }
+
+        // Column 1: tower, plains, brush
+        // Column 2: jungle, woods, hills, mountains
+        // Column 3: desert, marsh, swamp, tundra
+        const columns = [
+          ["tower", "plains", "brush"],
+          ["jungle", "woods", "hills", "mountains"],
+          ["desert", "marsh", "swamp", "tundra"]
+        ];
+
+        function renderTerrainEntry(terrain) {
+          const colorVar = terrainFillByType[terrain];
+          const terrainLabel = terrain.charAt(0).toUpperCase() + terrain.slice(1);
+
+          // Special case for Tower
+          if (terrain === "tower") {
+            return `
+              <div class="legend-entry">
+                <div class="legend-terrain-name">
+                  <div class="legend-color-swatch" style="background-color: ${colorVar};"></div>
+                  <span>${terrainLabel}</span>
+                </div>
+                <div class="legend-creatures">Centaur, Gargoyle, or Ogre<br/>Any (3) -> Guardian<br/>Titan -> Warlock</div>
+              </div>
+            `;
+          }
+
+          const creatures = recruitmentByTerrain[terrain] || [];
+          if (creatures.length === 0) {
+            return "";
+          }
+
+          const creatureList = creatures.map((step) => {
+            const creatName = step.type.charAt(0).toUpperCase() + step.type.slice(1).toLowerCase();
+            if (step.promoteAt && step.promoteAt > 2) {
+              return `${creatName} (${step.promoteAt})`;
+            }
+            return creatName;
+          }).join(" -> ");
+
+          return `
+            <div class="legend-entry">
+              <div class="legend-terrain-name">
+                <div class="legend-color-swatch" style="background-color: ${colorVar};"></div>
+                <span>${terrainLabel}</span>
+              </div>
+              <div class="legend-creatures">${creatureList}</div>
+            </div>
+          `;
+        }
+
+        let html = '<div class="legend-row">';
+
+        // Column 1: Title + tower, plains, brush
+        html += '<div class="legend-column"><div class="legend-title-cell">Titan</div>';
+        for (const terrain of columns[0]) {
+          html += renderTerrainEntry(terrain);
+        }
+        html += '</div>';
+
+        // Column 2: jungle, woods, hills, mountains
+        html += '<div class="legend-column">';
+        for (const terrain of columns[1]) {
+          html += renderTerrainEntry(terrain);
+        }
+        html += '</div>';
+
+        // Column 3: desert, marsh, swamp, tundra
+        html += '<div class="legend-column">';
+        for (const terrain of columns[2]) {
+          html += renderTerrainEntry(terrain);
+        }
+        html += '</div>';
+
+        html += '</div>';
+
+        legendContent.innerHTML = html;
+        recruitmentLegend.style.display = "table";
+      }
+
       function setMainBoardMode(mode, options = {}) {
         if (!worldBoardShell || !battleBoardShell || !battleMainStage || !battleMainMeta) {
           return;
@@ -1600,6 +1863,7 @@
 
         battleBoardShell.style.display = "none";
         worldBoardShell.style.display = "block";
+        populateRecruitmentLegend();
       }
 
       function setPanelTitle(playerName = "") {
@@ -1608,6 +1872,150 @@
         }
         const normalized = String(playerName || "").trim();
         panelTitle.textContent = normalized ? `TITAN - ${normalized}` : "TITAN";
+      }
+
+      function formatTerrainLabel(terrainType) {
+        return String(terrainType || "PLAINS")
+          .toLowerCase()
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (letter) => letter.toUpperCase());
+      }
+
+      function setTileHoverText(tileElement, text) {
+        if (!tileElement || !text) {
+          return;
+        }
+
+        tileElement.setAttribute("title", text);
+        const titleNode = tileElement.querySelector("title") || document.createElementNS("http://www.w3.org/2000/svg", "title");
+        titleNode.textContent = text;
+        if (!titleNode.parentNode) {
+          tileElement.appendChild(titleNode);
+        }
+      }
+
+      function restoreTileHoverText(tileElement) {
+        if (!tileElement) {
+          return;
+        }
+
+        const baseText = tileElement.dataset.baseHoverText;
+        if (baseText) {
+          setTileHoverText(tileElement, baseText);
+        }
+      }
+
+      function getEligibleRecruitsForTerrain(legion, terrain) {
+        if (!legion || (legion.creatures || []).length >= 7) {
+          return [];
+        }
+
+        const chain = recruitmentByTerrain[terrain] || [];
+        const counts = new Map();
+        for (const creature of legion.creatures || []) {
+          counts.set(creature.type, (counts.get(creature.type) || 0) + 1);
+        }
+
+        const eligible = new Set();
+        for (let index = 0; index < chain.length; index += 1) {
+          const step = chain[index];
+          const count = counts.get(step.type) || 0;
+
+          if (count >= 1) {
+            eligible.add(step.type);
+          }
+          if (step.promoteAt !== undefined && count >= step.promoteAt && index + 1 < chain.length) {
+            eligible.add(chain[index + 1].type);
+          }
+        }
+
+        if (terrain === "tower") {
+          eligible.add("CENTAUR");
+          eligible.add("GARGOYLE");
+          eligible.add("OGRE");
+
+          for (const count of counts.values()) {
+            if (count >= 3) {
+              eligible.add("GUARDIAN");
+              break;
+            }
+          }
+
+          if ((counts.get("TITAN") || 0) >= 1) {
+            eligible.add("WARLOCK");
+          }
+        }
+
+        return Array.from(eligible);
+      }
+
+      function buildMoveTargetHoverText(tileId, legion) {
+        const terrain = terrainByNumber.get(tileId) || "plains";
+        const terrainLabel = formatTerrainLabel(terrain);
+        const recruitables = getEligibleRecruitsForTerrain(legion, terrain)
+          .map((creatureType) => formatTerrainLabel(creatureType))
+          .join(", ");
+
+        return recruitables
+          ? `Tile ${tileId} - ${terrainLabel}\nValid recruits: ${recruitables}`
+          : `Tile ${tileId} - ${terrainLabel}\nValid recruits: none`;
+      }
+
+      function clearAdminPlacementHighlight() {
+        document.querySelectorAll(".triangle-admin-selected").forEach((element) => {
+          element.classList.remove("triangle-admin-selected");
+        });
+      }
+
+      function syncAdminPlacementHighlight(tileId = "") {
+        clearAdminPlacementHighlight();
+        if (!tileId) {
+          return;
+        }
+
+        const tileElements = window.titanTriangleElements || new Map();
+        const tile = tileElements.get(tileId);
+        if (tile) {
+          tile.classList.add("triangle-admin-selected");
+        }
+      }
+
+      function configureAdminPlacementTilePicker(enabled) {
+        const tileElements = window.titanTriangleElements || new Map();
+
+        tileElements.forEach((polygon) => {
+          const oldHandler = polygon.__adminPlacementClickHandler;
+          if (oldHandler) {
+            polygon.removeEventListener("click", oldHandler);
+            delete polygon.__adminPlacementClickHandler;
+          }
+          polygon.style.cursor = "";
+        });
+
+        if (!enabled) {
+          clearAdminPlacementHighlight();
+          return;
+        }
+
+        tileElements.forEach((polygon, tileId) => {
+          polygon.style.cursor = "pointer";
+          const handler = () => {
+            const input = document.getElementById("place-stack-tile");
+            if (!input) {
+              return;
+            }
+
+            adminPlacementTile = tileId;
+            input.value = tileId;
+            syncAdminPlacementHighlight(tileId);
+            showStatus(`Selected tile ${tileId} (${formatTerrainLabel(polygon.dataset.terrainType)}).`, "info");
+          };
+
+          polygon.addEventListener("click", handler);
+          polygon.__adminPlacementClickHandler = handler;
+        });
+
+        syncAdminPlacementHighlight(adminPlacementTile || document.getElementById("place-stack-tile")?.value || "");
       }
 
       function renderTabs() {
@@ -1737,9 +2145,9 @@
 
       function clearMovePreviewHighlights() {
         document
-          .querySelectorAll(".triangle-preview-target, .triangle-preview-source")
+          .querySelectorAll(".triangle-preview-target, .triangle-preview-target-attack, .triangle-preview-source")
           .forEach((element) => {
-            element.classList.remove("triangle-preview-target", "triangle-preview-source");
+            element.classList.remove("triangle-preview-target", "triangle-preview-target-attack", "triangle-preview-source");
             restoreTileFill(element);
           });
         clearMoveKeyMarkers();
@@ -1796,7 +2204,7 @@
       ];
       const BATTLE_TOP_ENTRY_LABELS = ["1", "2", "3"];
       const BATTLE_BOTTOM_ENTRY_LABELS = ["24", "25", "26", "27"];
-      const BATTLE_HEX_R = 42;
+      const BATTLE_HEX_R = 26;
       const BATTLE_HW = Math.sqrt(3) * BATTLE_HEX_R;
 
       // Returns card size in CSS pixels matching one hex side length on screen.
@@ -1878,6 +2286,7 @@
         html += `</div>`;
         el.innerHTML = html;
         el.style.display = "block";
+        scheduleBattleAiAutomation();
       }
 
       function battleTrackerClick() {
@@ -1936,6 +2345,15 @@
             resetBattleStrikeState();
             return;
           }
+
+          if (turn >= BATTLE_TURNS) {
+            const timeoutResolved = await resolveBattleByTurnLimit();
+            if (timeoutResolved) {
+              resetBattleStrikeState();
+              return;
+            }
+          }
+
           phase = 0;
           turn = Math.min(turn + 1, BATTLE_TURNS);
           clearBattleRoundAttackState();
@@ -1952,6 +2370,378 @@
           return null;
         }
         return phase.startsWith("D.") ? "defender" : "attacker";
+      }
+
+      let battleAiAutomationRunning = false;
+      let battleAiAutomationQueued = false;
+
+      function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function getBattleRolePlayerId(role) {
+        if (role === "defender") {
+          return battleResolutionContext.defenderPlayerId || "";
+        }
+        if (role === "attacker") {
+          return battleResolutionContext.attackerPlayerId || "";
+        }
+        return "";
+      }
+
+      function isAiBattleRole(role) {
+        const playerId = getBattleRolePlayerId(role);
+        if (!playerId) {
+          return false;
+        }
+        const player = (gameState?.players || []).find((candidate) => candidate.id === playerId);
+        if (!player) {
+          return false;
+        }
+        return !!player.aiPlayStyle || String(player.name || "").startsWith("[AI]");
+      }
+
+      function getBattleCellForLabel(label) {
+        const idx = Number.parseInt(String(label), 10) - 1;
+        if (!Number.isInteger(idx) || idx < 0 || idx >= BATTLE_ACTIVE_CELLS.length) {
+          return null;
+        }
+        const [row, col] = BATTLE_ACTIVE_CELLS[idx];
+        return { row, col };
+      }
+
+      function computeBattleReachableWithDistances(sourceLabels, maxSteps, occupied = new Set(), startDistance = 0) {
+        const neighborsByLabel = getBattleNeighborMap();
+        const distances = new Map();
+        const queue = [];
+
+        sourceLabels.forEach((label) => {
+          if (!label) return;
+          distances.set(label, startDistance);
+          queue.push({ label, dist: startDistance });
+        });
+
+        while (queue.length > 0) {
+          const current = queue.shift();
+          if (!current || current.dist >= maxSteps) {
+            continue;
+          }
+
+          const nextDist = current.dist + 1;
+          const neighbors = neighborsByLabel.get(current.label) || [];
+          neighbors.forEach((nextLabel) => {
+            const seenDist = distances.get(nextLabel);
+            if (seenDist !== undefined && seenDist <= nextDist) {
+              return;
+            }
+            if (occupied.has(nextLabel)) {
+              return;
+            }
+            distances.set(nextLabel, nextDist);
+            queue.push({ label: nextLabel, dist: nextDist });
+          });
+        }
+
+        return distances;
+      }
+
+      function getClosestEnemyDistanceFromHex(role, hexLabel) {
+        if (!hexLabel) {
+          return Number.POSITIVE_INFINITY;
+        }
+
+        const enemyRole = role === "attacker" ? "defender" : "attacker";
+        const enemyHexes = Array.from(document.querySelectorAll("#battle-main-stage-wrap [id^='bcard-']"))
+          .filter((card) => {
+            if ((card.dataset.role || "").toLowerCase() !== enemyRole) return false;
+            if (card.dataset.removedFromBattle === "1") return false;
+            if (card.style.display === "none") return false;
+            if (!card.dataset.currentHex) return false;
+            const health = parseInt(card.dataset.currentHealth || "0", 10) || 0;
+            return health > 0 && !isCardDefeated(card);
+          })
+          .map((card) => card.dataset.currentHex)
+          .filter(Boolean);
+
+        if (enemyHexes.length === 0) {
+          return Number.POSITIVE_INFINITY;
+        }
+
+        const { byLabel } = getBattleCellMaps();
+        const sourceCell = byLabel.get(String(hexLabel));
+        if (!sourceCell) {
+          return Number.POSITIVE_INFINITY;
+        }
+
+        const sourceCube = oddrToCube(sourceCell.row, sourceCell.col);
+        let best = Number.POSITIVE_INFINITY;
+
+        enemyHexes.forEach((enemyHex) => {
+          const enemyCell = byLabel.get(String(enemyHex));
+          if (!enemyCell) return;
+          const dist = cubeDistance(sourceCube, oddrToCube(enemyCell.row, enemyCell.col));
+          if (dist < best) {
+            best = dist;
+          }
+        });
+
+        return best;
+      }
+
+      function chooseAiBattleDestination(card, role, occupied, category) {
+        const skill = Math.max(1, Number.parseInt(card.dataset.skill || "1", 10) || 1);
+        const currentHex = card.dataset.currentHex || "";
+        const isAttacker = role === "attacker";
+        const currentEnemyDist = currentHex ? getClosestEnemyDistanceFromHex(role, currentHex) : Number.POSITIVE_INFINITY;
+
+        // Attackers continue pressing upward each round until engaged.
+        if (isAttacker && currentHex) {
+          if (category === "ground-ranged" && currentEnemyDist >= 1 && currentEnemyDist <= 2) {
+            return null;
+          }
+          if (category !== "ground-ranged" && currentEnemyDist <= 1) {
+            return null;
+          }
+        }
+
+        let sources = [];
+        let startDistance = 0;
+        if (currentHex) {
+          sources = [currentHex];
+        } else if (role === "defender") {
+          sources = BATTLE_TOP_ENTRY_LABELS;
+          startDistance = 1;
+        } else {
+          sources = BATTLE_BOTTOM_ENTRY_LABELS;
+          startDistance = 1;
+        }
+
+        const reachable = computeBattleReachableWithDistances(sources, skill, occupied, startDistance);
+        const candidates = [];
+        for (const [hex, dist] of reachable.entries()) {
+          if (occupied.has(hex)) {
+            continue;
+          }
+          if (currentHex && hex === currentHex) {
+            continue;
+          }
+          if (!currentHex && dist < 1) {
+            continue;
+          }
+
+          const cell = getBattleCellForLabel(hex);
+          if (!cell) {
+            continue;
+          }
+
+          const forward = role === "defender" ? cell.row : -cell.row;
+          const rightward = cell.col;
+          const enemyDist = getClosestEnemyDistanceFromHex(role, hex);
+          candidates.push({ hex, dist, forward, rightward, enemyDist });
+        }
+
+        if (candidates.length === 0) {
+          return null;
+        }
+
+        let scored = candidates;
+        if (category === "ground-ranged") {
+          const shallow = candidates.filter((candidate) => candidate.dist >= 1 && candidate.dist <= 2);
+          if (shallow.length > 0) {
+            scored = shallow;
+          }
+          if (isAttacker && Number.isFinite(currentEnemyDist)) {
+            const nonRetreat = scored.filter((candidate) => candidate.enemyDist <= currentEnemyDist);
+            if (nonRetreat.length > 0) {
+              scored = nonRetreat;
+            }
+          }
+          scored.sort((a, b) => {
+            if (a.enemyDist !== b.enemyDist) return a.enemyDist - b.enemyDist;
+            if (a.dist !== b.dist) return b.dist - a.dist;
+            if (a.forward !== b.forward) return b.forward - a.forward;
+            return b.rightward - a.rightward;
+          });
+          return scored[0].hex;
+        }
+
+        if (category === "flyer") {
+          if (isAttacker && Number.isFinite(currentEnemyDist)) {
+            const nonRetreat = scored.filter((candidate) => candidate.enemyDist <= currentEnemyDist);
+            if (nonRetreat.length > 0) {
+              scored = nonRetreat;
+            }
+          }
+          scored.sort((a, b) => {
+            if (isAttacker && a.enemyDist !== b.enemyDist) return a.enemyDist - b.enemyDist;
+            if (a.rightward !== b.rightward) return b.rightward - a.rightward;
+            if (a.forward !== b.forward) return b.forward - a.forward;
+            return b.dist - a.dist;
+          });
+          return scored[0].hex;
+        }
+
+        if (isAttacker && Number.isFinite(currentEnemyDist)) {
+          const nonRetreat = scored.filter((candidate) => candidate.enemyDist <= currentEnemyDist);
+          if (nonRetreat.length > 0) {
+            scored = nonRetreat;
+          }
+        }
+
+        scored.sort((a, b) => {
+          if (isAttacker && a.enemyDist !== b.enemyDist) return a.enemyDist - b.enemyDist;
+          if (a.forward !== b.forward) return b.forward - a.forward;
+          if (a.dist !== b.dist) return b.dist - a.dist;
+          return b.rightward - a.rightward;
+        });
+        return scored[0].hex;
+      }
+
+      async function runAiBattleMovePhase(role) {
+        const CARD = getBattleCardSize();
+        const allRoleCards = Array.from(document.querySelectorAll("#battle-main-stage-wrap [id^='bcard-']"))
+          .filter((card) => {
+            if ((card.dataset.role || "").toLowerCase() !== role) return false;
+            if (card.dataset.removedFromBattle === "1") return false;
+            if (card.style.display === "none") return false;
+            const health = parseInt(card.dataset.currentHealth || "0", 10) || 0;
+            return health > 0 && !isCardDefeated(card);
+          });
+
+        const groundMelee = allRoleCards
+          .filter((card) => card.dataset.flying !== "1" && card.dataset.rangestrike !== "1")
+          .sort((a, b) => (parseInt(b.dataset.skill || "1", 10) || 1) - (parseInt(a.dataset.skill || "1", 10) || 1));
+        const groundRanged = allRoleCards
+          .filter((card) => card.dataset.flying !== "1" && card.dataset.rangestrike === "1")
+          .sort((a, b) => (parseInt(b.dataset.skill || "1", 10) || 1) - (parseInt(a.dataset.skill || "1", 10) || 1));
+        const flyers = allRoleCards
+          .filter((card) => card.dataset.flying === "1")
+          .sort((a, b) => (parseInt(b.dataset.skill || "1", 10) || 1) - (parseInt(a.dataset.skill || "1", 10) || 1));
+
+        const ordered = [
+          ...groundMelee.map((card) => ({ card, category: "ground-melee" })),
+          ...groundRanged.map((card) => ({ card, category: "ground-ranged" })),
+          ...flyers.map((card) => ({ card, category: "flyer" })),
+        ];
+
+        for (const entry of ordered) {
+          const occupied = getOccupiedBattleHexes(entry.card.id);
+          const targetHex = chooseAiBattleDestination(entry.card, role, occupied, entry.category);
+          if (!targetHex) {
+            continue;
+          }
+          const moved = placeBattleCardOnHex(entry.card, targetHex, CARD);
+          if (moved) {
+            await delay(180);
+          }
+        }
+      }
+
+      function pickAiStrikeTarget(targets) {
+        if (!targets || targets.length === 0) {
+          return null;
+        }
+        const scored = [...targets].sort((a, b) => {
+          const aHealth = parseInt(a.dataset.currentHealth || "0", 10) || 0;
+          const bHealth = parseInt(b.dataset.currentHealth || "0", 10) || 0;
+          if (aHealth !== bHealth) return aHealth - bHealth;
+          const aPower = parseInt(a.dataset.power || "1", 10) || 1;
+          const bPower = parseInt(b.dataset.power || "1", 10) || 1;
+          return bPower - aPower;
+        });
+        return scored[0];
+      }
+
+      async function runAiBattleStrikePhase(role) {
+        while (true) {
+          const attackers = Array.from(document.querySelectorAll("#battle-main-stage-wrap [id^='bcard-']"))
+            .filter((card) => {
+              if ((card.dataset.role || "").toLowerCase() !== role) return false;
+              if (card.dataset.removedFromBattle === "1") return false;
+              if (!card.dataset.currentHex) return false;
+              const health = parseInt(card.dataset.currentHealth || "0", 10) || 0;
+              if (health <= 0 || isCardDefeated(card)) return false;
+              if (card.dataset.lastStrikePhase === getStrikePhaseKey()) return false;
+              const legalTargets = getBattleStrikeTargets(card, { allowDefeatedSelf: canDefenderLastStrike(card) });
+              return legalTargets.length > 0;
+            })
+            .sort((a, b) => {
+              const aRanged = a.dataset.rangestrike === "1" ? 1 : 0;
+              const bRanged = b.dataset.rangestrike === "1" ? 1 : 0;
+              if (aRanged !== bRanged) return bRanged - aRanged;
+              const aPower = parseInt(a.dataset.power || "1", 10) || 1;
+              const bPower = parseInt(b.dataset.power || "1", 10) || 1;
+              return bPower - aPower;
+            });
+
+          const attacker = attackers[0];
+          if (!attacker) {
+            break;
+          }
+
+          const targets = getBattleStrikeTargets(attacker, { allowDefeatedSelf: canDefenderLastStrike(attacker) });
+          const defender = pickAiStrikeTarget(targets);
+          if (!defender) {
+            attacker.dataset.lastStrikePhase = getStrikePhaseKey();
+            continue;
+          }
+
+          battleStrikeState.attackerCardId = attacker.id;
+          battleStrikeState.defenderCardId = defender.id;
+          battleRollStrike();
+          await delay(220);
+        }
+      }
+
+      async function runBattleAiAutomation() {
+        battleAiAutomationQueued = false;
+        if (battleAiAutomationRunning) {
+          return;
+        }
+        if (activeTab !== "battle" || currentPhase !== "FIGHT") {
+          return;
+        }
+
+        const moveRole = getActiveMoveRole();
+        const strikeRole = getActiveStrikeRole();
+        if (!moveRole && !strikeRole) {
+          return;
+        }
+
+        const roleToRun = moveRole || strikeRole;
+        if (!roleToRun || !isAiBattleRole(roleToRun)) {
+          return;
+        }
+
+        battleAiAutomationRunning = true;
+        try {
+          if (moveRole) {
+            await runAiBattleMovePhase(moveRole);
+            await delay(180);
+            battleCompleteMovementPhase();
+            scheduleBattleAiAutomation();
+            return;
+          }
+
+          if (strikeRole) {
+            await runAiBattleStrikePhase(strikeRole);
+            await delay(180);
+            await battleCompleteStrikePhase();
+            scheduleBattleAiAutomation();
+          }
+        } finally {
+          battleAiAutomationRunning = false;
+        }
+      }
+
+      function scheduleBattleAiAutomation() {
+        if (battleAiAutomationQueued) {
+          return;
+        }
+        battleAiAutomationQueued = true;
+        setTimeout(() => {
+          runBattleAiAutomation();
+        }, 120);
       }
 
       function refreshBattleCardDraggability() {
@@ -2023,6 +2813,40 @@
         return CREATURE_TYPE_BY_KEY.get(key) || null;
       }
 
+      function normalizeColorToHex(color, fallbackColor = "#888888") {
+        const input = String(color || "").trim();
+        if (/^#[0-9a-f]{6}$/i.test(input)) {
+          return input.toUpperCase();
+        }
+        if (/^#[0-9a-f]{3}$/i.test(input)) {
+          const r = input[1];
+          const g = input[2];
+          const b = input[3];
+          return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+        }
+
+        const rgb = input.match(/^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+        if (rgb) {
+          const toHex = (value) => {
+            const clamped = Math.max(0, Math.min(255, Number.parseInt(value, 10) || 0));
+            return clamped.toString(16).padStart(2, "0").toUpperCase();
+          };
+          return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
+        }
+
+        const fallback = String(fallbackColor || "").trim();
+        if (/^#[0-9a-f]{6}$/i.test(fallback)) {
+          return fallback.toUpperCase();
+        }
+        if (/^#[0-9a-f]{3}$/i.test(fallback)) {
+          const r = fallback[1];
+          const g = fallback[2];
+          const b = fallback[3];
+          return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+        }
+        return "#888888";
+      }
+
       function getBattleRoleSurvivors(role, fallbackColor = "#888") {
         const cards = Array.from(document.querySelectorAll("#battle-main-stage-wrap [id^='bcard-']"));
         return cards
@@ -2041,7 +2865,10 @@
               type,
               power: parseInt(card.dataset.power || "1", 10) || 1,
               skill: parseInt(card.dataset.skill || "1", 10) || 1,
-              color: card.style.background || fallbackColor,
+              color: normalizeColorToHex(
+                card.style.background || card.style.backgroundColor || "",
+                fallbackColor
+              ),
             };
           })
           .filter(Boolean);
@@ -2064,6 +2891,74 @@
         return { defenders, attackers };
       }
 
+      function getBattleResolverPlayerId() {
+        return client.getPlayerId() || gameState?.activePlayer || "";
+      }
+      function clearBattleTransientState() {
+        battleTurnState = { turn: 1, phase: 0 };
+        resetBattleStrikeState();
+        clearBattleRoundAttackState();
+        battleRollHistory = [];
+        battleLastStrikeByAttacker = new Map();
+        battleFallenCreatures = [];
+        battleInfoContextKey = "";
+        battleResolutionContext = {
+          tileId: "",
+          defenderLegionId: "",
+          attackerLegionId: "",
+          defenderPlayerId: "",
+          attackerPlayerId: "",
+        };
+        battleAiAutomationQueued = false;
+      }
+
+      function removeAllRoleCardsFromBattle(role) {
+        const cards = Array.from(document.querySelectorAll("#battle-main-stage-wrap [id^='bcard-']"));
+        cards.forEach((card) => {
+          if ((card.dataset.role || "").toLowerCase() !== role) {
+            return;
+          }
+          if (card.dataset.removedFromBattle === "1") {
+            return;
+          }
+          if (!card.dataset.currentHex || card.style.display === "none") {
+            return;
+          }
+          const health = parseInt(card.dataset.currentHealth || "0", 10) || 0;
+          if (health <= 0 || isCardDefeated(card)) {
+            return;
+          }
+
+          battleFallenCreatures.push({
+            role: (card.dataset.role || "").toLowerCase(),
+            name: getCardName(card),
+            turn: String(battleTurnState.turn),
+            phase: getCurrentBattlePhaseLabel(),
+            color: card.style.background || "#888",
+            power: parseInt(card.dataset.power || "1", 10) || 1,
+            skill: parseInt(card.dataset.skill || "1", 10) || 1,
+          });
+
+          card.dataset.removedFromBattle = "1";
+          delete card.dataset.currentHex;
+          card.style.display = "none";
+        });
+
+        refreshBattleFallenPanel();
+      }
+
+      async function resolveBattleByTurnLimit() {
+        const { defenders, attackers } = getBattlefieldRoleCounts();
+        if (battleTurnState.turn < BATTLE_TURNS || defenders <= 0 || attackers <= 0) {
+          return false;
+        }
+
+        // Rule: if battle would continue past turn 7, defender wins and attacker stack is eliminated.
+        removeAllRoleCardsFromBattle("attacker");
+        showStatus("Turn limit reached (7). Defender wins and attacker stack is eliminated.", "info");
+        return maybeResolveBattleEnd();
+      }
+
       async function maybeResolveBattleEnd() {
         const { defenders, attackers } = getBattlefieldRoleCounts();
         if (defenders > 0 && attackers > 0) {
@@ -2072,15 +2967,15 @@
 
         const tie = defenders === 0 && attackers === 0;
         const winnerRole = tie ? null : (defenders > 0 ? "defender" : "attacker");
-        const ownPlayerId = client.getPlayerId();
+        const resolverPlayerId = getBattleResolverPlayerId();
 
-        if (activeGameId && ownPlayerId && battleResolutionContext.tileId && battleResolutionContext.defenderLegionId && battleResolutionContext.attackerLegionId) {
+        if (activeGameId && resolverPlayerId && battleResolutionContext.tileId && battleResolutionContext.defenderLegionId && battleResolutionContext.attackerLegionId) {
           try {
             const defenderColor = gameState?.players?.find((p) => p.id === battleResolutionContext.defenderPlayerId)?.color || "#a66";
             const attackerColor = gameState?.players?.find((p) => p.id === battleResolutionContext.attackerPlayerId)?.color || "#66a";
             const result = await client.resolveBattle({
               gameId: activeGameId,
-              playerId: ownPlayerId,
+              playerId: resolverPlayerId,
               battleTileId: battleResolutionContext.tileId,
               defenderLegionId: battleResolutionContext.defenderLegionId,
               attackerLegionId: battleResolutionContext.attackerLegionId,
@@ -2091,6 +2986,7 @@
             if (result.gameWonByPlayerId) {
               const winnerName = gameState?.players?.find((p) => p.id === result.gameWonByPlayerId)?.name || "Player";
               showStatus(`${winnerName} wins the game!`, "success");
+              setWinnerOverlay(winnerName);
             } else if (result.tie) {
               showStatus("Battle ended in a tie.", "info");
             } else if (winnerRole === "defender") {
@@ -2111,6 +3007,7 @@
           }
         }
 
+        clearBattleTransientState();
         activeTab = "game";
         if (activeGameId) {
           await showCurrentGame();
@@ -3460,12 +4357,21 @@
       function applyBattleStacks(stacks) {
         const leftPanel = document.getElementById("battle-overlay-left");
         const rightPanel = document.getElementById("battle-overlay-right");
+        const droppedCards = document.getElementById("battle-dropped-cards");
         if (!leftPanel || !rightPanel) return;
 
         leftPanel.innerHTML = "";
         rightPanel.innerHTML = "";
         leftPanel.style.display = "none";
         rightPanel.style.display = "none";
+
+        // Rebuild battle cards from authoritative stack data to avoid duplicate/recreated cards.
+        if (droppedCards) {
+          droppedCards.innerHTML = "";
+        }
+        resetBattleDragState();
+        resetBattleClickMoveState();
+        resetBattleStrikeState();
 
         // Card size matches the rendered screen width of a hex.
         const CARD = getBattleCardSize();
@@ -3476,7 +4382,7 @@
           const panel = isAttacker ? rightPanel : leftPanel;
           const color = normalizeColor(entry.color);
           const playerLabel = entry.player || (isAttacker ? "Attacker" : "Defender");
-          const creatures = entry.creatures || [];
+          const creatures = (entry.creatures || []).slice(0, 7);
           const sideRowCapacities = [3, 2, 1, 1];
           const createdCards = [];
 
@@ -3755,7 +4661,7 @@
         document.querySelectorAll("[data-stack-layer] [data-move-key-marker]").forEach((marker) => marker.remove());
       }
 
-      function renderMoveKeyMarkers(tileIds) {
+      function renderMoveKeyMarkers(tileIds, attackTileIds = new Set()) {
         clearMoveKeyMarkers();
 
         const stackLayer = document.querySelector("[data-stack-layer]");
@@ -3770,13 +4676,15 @@
             return;
           }
 
+          const isAttackTile = attackTileIds.has(tileId);
+
           const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
           marker.setAttribute("data-move-key-marker", "1");
           marker.setAttribute("cx", String(triangle.centerPoint.x));
           marker.setAttribute("cy", String(triangle.centerPoint.y));
           marker.setAttribute("r", "7");
-          marker.setAttribute("fill", "#b7b7b7");
-          marker.setAttribute("stroke", "#575757");
+          marker.setAttribute("fill", isAttackTile ? "#d34141" : "#b7b7b7");
+          marker.setAttribute("stroke", isAttackTile ? "#6a1f1f" : "#575757");
           marker.setAttribute("stroke-width", "2");
           marker.style.pointerEvents = "none";
           stackLayer.appendChild(marker);
@@ -3840,6 +4748,164 @@
         } catch (error) {
           showError(error.message || "Could not clear games.");
         }
+      }
+
+      function renderForceBattleAdminSection(players) {
+        const eligiblePlayers = (players || []).filter((player) => player.status === "ACTIVE" && (player.legions || []).length > 0);
+        if (!isAdminMode || eligiblePlayers.length < 2) {
+          return "";
+        }
+
+        const attackerOptions = eligiblePlayers.map((player, index) => `
+          <option value="${player.id}" ${index === 0 ? "selected" : ""}>${player.name} (${player.legions.length} legion${player.legions.length !== 1 ? "s" : ""})</option>
+        `).join("");
+
+        const defenderOptions = eligiblePlayers.map((player, index) => `
+          <option value="${player.id}" ${index === 1 ? "selected" : ""}>${player.name} (${player.legions.length} legion${player.legions.length !== 1 ? "s" : ""})</option>
+        `).join("");
+
+        return `
+          <div class="panel-section" style="margin-top:1rem;">
+            <h3>Admin - Force Battle</h3>
+            <div class="form-group">
+              <label for="force-battle-attacker">Attacker</label>
+              <select id="force-battle-attacker">${attackerOptions}</select>
+            </div>
+            <div class="form-group">
+              <label for="force-battle-defender">Defender</label>
+              <select id="force-battle-defender">${defenderOptions}</select>
+            </div>
+            <div class="form-group">
+              <label for="force-battle-tile">Battle Tile</label>
+              <input id="force-battle-tile" type="text" value="211" maxlength="3" placeholder="e.g. 211" />
+            </div>
+            <button id="btn-force-battle" class="primary" style="width:100%;">Force Battle</button>
+          </div>
+        `;
+      }
+
+      function renderStackPlacementAdminSection(players) {
+        const eligibleLegions = (players || [])
+          .filter((player) => player.status === "ACTIVE")
+          .flatMap((player) => (player.legions || []).map((legion) => ({
+            player,
+            legion,
+            stackNumber: getStackNumber(legion),
+          })));
+
+        if (!isAdminMode) {
+          return "";
+        }
+
+        if (eligibleLegions.length === 0) {
+          return `
+            <div class="panel-section" style="margin-top:1rem;">
+              <h3>Admin - Place Stack</h3>
+              <div class="status info" style="margin-bottom:0;">Add a player first. Once a stack exists, you can place it on any tile here.</div>
+            </div>
+          `;
+        }
+
+        const legionOptions = eligibleLegions.map(({ player, legion, stackNumber }, index) => `
+          <option value="${legion.id}" ${index === 0 ? "selected" : ""}>${player.name} · Stack ${stackNumber} · Tile ${legion.tile}</option>
+        `).join("");
+
+        return `
+          <div class="panel-section" style="margin-top:1rem;">
+            <h3>Admin - Place Stack</h3>
+            <div class="form-group">
+              <label for="place-stack-legion">Stack</label>
+              <select id="place-stack-legion">${legionOptions}</select>
+            </div>
+            <div class="form-group">
+              <label for="place-stack-tile">Target Tile</label>
+              <input id="place-stack-tile" type="text" value="${adminPlacementTile || "211"}" maxlength="3" placeholder="e.g. 211" />
+            </div>
+            <div style="color:#9f8b67;font-size:0.75rem;margin:-0.1rem 0 0.6rem;">Click any tile on the main board or type a tile id to choose the destination.</div>
+            <button id="btn-place-stack" style="width:100%;">Place Stack</button>
+          </div>
+        `;
+      }
+
+      async function forceBattleForTest() {
+        const attackerPlayerId = (document.getElementById("force-battle-attacker")?.value || "").trim();
+        const defenderPlayerId = (document.getElementById("force-battle-defender")?.value || "").trim();
+        const battleTileId = (document.getElementById("force-battle-tile")?.value || "211").trim();
+
+        if (!attackerPlayerId || !defenderPlayerId) {
+          showError("Select both attacker and defender.");
+          return;
+        }
+        if (attackerPlayerId === defenderPlayerId) {
+          showError("Attacker and defender must be different players.");
+          return;
+        }
+
+        try {
+          const response = await fetch(`${window.location.origin}/api/admin/game/${encodeURIComponent(activeGameId)}/force-battle?admin=true`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ attackerPlayerId, defenderPlayerId, battleTileId }),
+          });
+
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "Could not force battle");
+          }
+
+          gameState = payload.state;
+          currentPhase = payload.state?.phase || Phase.FIGHT;
+          activeTab = "battle";
+          await showBattleBoard();
+          showStatus(`Forced battle on tile ${payload.battleTileId}.`, "success");
+        } catch (error) {
+          showError(error.message || "Could not force battle.");
+        }
+      }
+
+      async function placeStackForTest() {
+        const legionId = (document.getElementById("place-stack-legion")?.value || "").trim();
+        const targetTile = (document.getElementById("place-stack-tile")?.value || "").trim();
+
+        if (!legionId) {
+          showError("Select a stack to place.");
+          return;
+        }
+
+        try {
+          const response = await fetch(`${window.location.origin}/api/admin/game/${encodeURIComponent(activeGameId)}/place-stack?admin=true`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ legionId, targetTile }),
+          });
+
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "Could not place stack");
+          }
+
+          gameState = payload.state;
+          adminPlacementTile = payload.targetTile;
+          currentPhase = payload.state?.phase || currentPhase;
+          activeTab = "game";
+          await showCurrentGame();
+          showStatus(`Placed stack on tile ${payload.targetTile}.`, "success");
+        } catch (error) {
+          showError(error.message || "Could not place stack.");
+        }
+      }
+
+      function bindAdminStackPlacementControls(enableBoardPicker = true) {
+        document.getElementById("place-stack-tile")?.addEventListener("input", (event) => {
+          adminPlacementTile = event.target.value.trim();
+          syncAdminPlacementHighlight(adminPlacementTile);
+        });
+        document.getElementById("btn-place-stack")?.addEventListener("click", placeStackForTest);
+        configureAdminPlacementTilePicker(enableBoardPicker && !!document.getElementById("place-stack-tile"));
       }
 
       async function copyInviteLink() {
@@ -3969,12 +5035,14 @@
         client.on("server:state-snapshot", (data) => {
           if (data && data.gameId === activeGameId) {
             gameState = data.state;
+            syncWinnerOverlayFromState(gameState);
             currentPhase = data.state.phase;
             if (activeTab === "battle") {
               if (currentPhase === "FIGHT") {
                 showBattleBoard();
               } else {
                 // Battle over — switch back to game tab
+                clearBattleTransientState();
                 activeTab = "game";
                 if (currentPhase === "RECRUIT") {
                   showRecruitPhase(activeGameId);
@@ -4040,8 +5108,19 @@
 
         client.on("server:phase-ended", (data) => {
           if (data.gameId === activeGameId) {
+            currentPhase = data.currentPhase || data.nextPhase || currentPhase;
             if (activeTab === "battle") {
-              showBattleBoard();
+              if (currentPhase === "FIGHT") {
+                showBattleBoard();
+              } else {
+                clearBattleTransientState();
+                activeTab = "game";
+                if (currentPhase === "RECRUIT") {
+                  showRecruitPhase(activeGameId);
+                } else {
+                  showCurrentGame();
+                }
+              }
             } else if (activeTab === "game") {
               if (currentPhase === "SPLIT") {
                 showSplitPhase(activeGameId);
@@ -4058,8 +5137,10 @@
 
         client.on("server:battle-resolved", (data) => {
           if (data.gameId !== activeGameId) return;
+          clearBattleTransientState();
           if (data.gameWonByPlayerId) {
             const winner = (gameState?.players || []).find((p) => p.id === data.gameWonByPlayerId);
+            setWinnerOverlay(winner?.name || "Player");
             showStatus(`${winner?.name || "Player"} wins the game!`, "success");
           } else if (data.tie) {
             showStatus("Battle ended in a tie.", "info");
@@ -4080,6 +5161,8 @@
 
       async function showLobby() {
         setMainBoardMode("world");
+        configureAdminPlacementTilePicker(false);
+        setWinnerOverlay("");
         setPanelTitle("");
         let games = [];
         try {
@@ -4094,13 +5177,14 @@
             <ul class="game-list" id="active-game-list">
               ${games.length === 0 ? `<li class="game-list-item">No active games.</li>` : games.map((game) => {
                 const inactive = game.phase !== "LOBBY";
+                const playerListJson = JSON.stringify(game.playerList || []).replace(/"/g, "&quot;");
                 return `
                 <li class="game-list-item${inactive ? " inactive" : ""}">
                   <div>
                     <div class="game-id-pill">${game.gameId}</div>
                     <div style="font-size:0.72rem;color:#9f8b67;margin-top:0.25rem;">${game.players} player(s) ${inactive ? "in progress" : "waiting"}</div>
                   </div>
-                  <button data-select-game="${game.gameId}" ${inactive ? "disabled" : ""}>Join</button>
+                  <button data-select-game="${game.gameId}" data-player-list="${playerListJson}">${inactive ? "Rejoin" : "Join"}</button>
                 </li>`;
               }).join("")}
             </ul>
@@ -4124,7 +5208,9 @@
         document.querySelectorAll("[data-select-game]").forEach((element) => {
           element.addEventListener("click", () => {
             selectedGameId = element.getAttribute("data-select-game") || "";
-            openJoinDialog(selectedGameId);
+            let playerList = [];
+            try { playerList = JSON.parse(element.getAttribute("data-player-list") || "[]"); } catch (_) {}
+            openJoinDialog(selectedGameId, playerList);
           });
         });
         document.getElementById("btn-open-create").addEventListener("click", () => openCreateDialog());
@@ -4168,20 +5254,29 @@
         });
       }
 
-      function openJoinDialog(prefillId = "") {
+      function openJoinDialog(prefillId = "", playerList = []) {
+        const playerPickHtml = playerList.length > 0 ? `
+          <div class="form-group">
+            <label>Take over player</label>
+            <select id="dlg-join-player-pick">
+              <option value="">-- New Player --</option>
+              ${playerList.map((p, i) => `<option value="${i}" data-name="${(p.name || "").replace(/"/g, "&quot;")}" data-color="${p.color || ""}">${p.name}</option>`).join("")}
+            </select>
+          </div>` : "";
         openDialog(`
-          <h3>Join Game</h3>
+          <h3>${playerList.length > 0 ? "Rejoin" : "Join"} Game</h3>
           <div class="form-group">
             <label>Game ID</label>
             <input type="text" id="dlg-join-id" placeholder="Enter game ID" value="${prefillId}" autocomplete="off" />
           </div>
+          ${playerPickHtml}
           <div class="form-group">
             <label>Game Key</label>
             <input type="password" id="dlg-join-key" placeholder="Enter game key" />
           </div>
           <div class="titan-dialog-actions">
             <button id="dlg-cancel">Cancel</button>
-            <button class="primary" id="dlg-confirm">Join</button>
+            <button class="primary" id="dlg-confirm">${playerList.length > 0 ? "Rejoin" : "Join"}</button>
           </div>
         `, (dlg) => {
           const idInput = dlg.querySelector("#dlg-join-id");
@@ -4229,15 +5324,28 @@
           return;
         }
 
+        // Determine if a specific player seat was selected
+        let playerName = undefined;
+        let playerColor = undefined;
+        const pickEl = document.getElementById("dlg-join-player-pick");
+        if (pickEl && pickEl.value) {
+          const opt = pickEl.options[pickEl.selectedIndex];
+          playerName = opt.dataset.name || undefined;
+          playerColor = opt.dataset.color || undefined;
+        }
+
         try {
           closeDialog();
-          const result = await client.joinGame(gameId, gameKey);
+          const result = await client.joinGame(gameId, gameKey, playerName, playerColor);
           activeGameId = result.game?.id || gameId;
           activeGameKey = gameKey;
           client.setStoredLastGame(activeGameId, gameKey);
           selectedGameId = activeGameId;
           clientId = result.clientId;
           client.setStoredClientId(result.clientId);
+          if (result.playerId) {
+            client.setPlayerId(result.playerId);
+          }
           isGameMaster = !!result.isGameMaster;
           activeTab = "game";
           await showCurrentGame();
@@ -4253,6 +5361,18 @@
         }
         const ownColor = "#6ba8ff";
         return players.find((player) => player.id === client.getPlayerId()) || null;
+      }
+
+      function isAiPlayer(player) {
+        const name = String(player?.name || "");
+        return !!player?.aiPlayStyle || name.startsWith("[AI]");
+      }
+
+      function canViewAllAiStacks(players, ownPlayerId) {
+        if (!isGameMaster || ownPlayerId || !Array.isArray(players) || players.length === 0) {
+          return false;
+        }
+        return players.every((player) => isAiPlayer(player));
       }
 
       function renderPlayersTable(players) {
@@ -4377,6 +5497,99 @@
         });
       }
 
+      function openAddAiPlayerDialog(takenColors, takenTowers) {
+        const taken = new Set((takenColors || []).map((c) => c.toLowerCase()));
+        const usedTowers = new Set(takenTowers || []);
+        let selectedColor = ALL_COLORS.find((c) => !taken.has(c.value.toLowerCase()))?.value || ALL_COLORS[0].value;
+        let selectedTower = ["100", "200", "300", "400", "500", "600"].find((tower) => !usedTowers.has(tower)) || "";
+        const playStyles = ["Normal", "Turtle", "Agressive", "HIghland", "Lowland"];
+
+        const swatches = ALL_COLORS.map((color) => {
+          const isTaken = taken.has(color.value.toLowerCase());
+          return `<span class="color-swatch${isTaken ? " taken" : ""}" data-color="${color.value}" title="${color.label}" style="background:${color.value};"></span>`;
+        }).join("");
+        const towerButtons = ["100", "200", "300", "400", "500", "600"].map((tower) => {
+          const isTaken = usedTowers.has(tower);
+          return `
+            <button type="button" class="tower-button${isTaken ? " taken" : ""}" data-ai-tower="${tower}" ${isTaken ? "disabled" : ""}>
+              <span class="tower-id">${tower}</span>
+              <span class="tower-status">${isTaken ? "Taken" : "Available"}</span>
+            </button>
+          `;
+        }).join("");
+
+        openDialog(`
+          <h3>Add AI Player</h3>
+          <div class="form-group">
+            <label>AI Name</label>
+            <input type="text" id="dlg-ai-name" placeholder="e.g. Athena" autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label>AI Color</label>
+            <div class="color-swatch-row" id="dlg-ai-swatch-row">${swatches}</div>
+            <input type="hidden" id="dlg-ai-color" value="${selectedColor}" />
+          </div>
+          <div class="form-group">
+            <label>Tower</label>
+            <div class="tower-grid">${towerButtons}</div>
+            <input type="hidden" id="dlg-ai-tower" value="${selectedTower}" />
+          </div>
+          <div class="form-group">
+            <label>Game Play Style</label>
+            <select id="dlg-ai-play-style">
+              ${playStyles.map((style) => `<option value="${style}" ${style === "Normal" ? "selected" : ""}>${style}</option>`).join("")}
+            </select>
+          </div>
+          <div class="titan-dialog-actions">
+            <button id="dlg-cancel">Cancel</button>
+            <button class="primary" id="dlg-confirm">Okay</button>
+          </div>
+        `, (dlg) => {
+          dlg.querySelector("#dlg-ai-name").focus();
+
+          function updateSelection(color) {
+            selectedColor = color;
+            dlg.querySelector("#dlg-ai-color").value = color;
+            dlg.querySelectorAll(".color-swatch").forEach((swatch) => {
+              swatch.classList.toggle("selected", swatch.dataset.color === color);
+            });
+          }
+
+          function updateTowerSelection(tower) {
+            selectedTower = tower;
+            dlg.querySelector("#dlg-ai-tower").value = tower;
+            dlg.querySelectorAll("[data-ai-tower]").forEach((button) => {
+              button.classList.toggle("selected", button.dataset.aiTower === tower);
+            });
+          }
+
+          updateSelection(selectedColor);
+          if (selectedTower) {
+            updateTowerSelection(selectedTower);
+          }
+
+          dlg.querySelector("#dlg-ai-swatch-row").addEventListener("click", (event) => {
+            const swatch = event.target.closest(".color-swatch");
+            if (swatch && !swatch.classList.contains("taken")) {
+              updateSelection(swatch.dataset.color);
+            }
+          });
+
+          dlg.querySelectorAll("[data-ai-tower]").forEach((button) => {
+            if (!button.disabled) {
+              button.addEventListener("click", () => updateTowerSelection(button.dataset.aiTower));
+            }
+          });
+
+          dlg.querySelector("#dlg-cancel").addEventListener("click", closeDialog);
+          dlg.querySelector("#dlg-confirm").addEventListener("click", addAiPlayerFromDialog);
+          dlg.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") addAiPlayerFromDialog();
+            if (event.key === "Escape") closeDialog();
+          });
+        });
+      }
+
       async function addMyPlayer() {
         const playerName = (document.getElementById("dlg-player-name")?.value || "").trim();
         const playerColor = document.getElementById("dlg-player-color")?.value || "";
@@ -4397,8 +5610,29 @@
         }
       }
 
+      async function addAiPlayerFromDialog() {
+        const playerName = (document.getElementById("dlg-ai-name")?.value || "").trim();
+        const playerColor = document.getElementById("dlg-ai-color")?.value || "";
+        const towerTile = document.getElementById("dlg-ai-tower")?.value || "";
+        const aiPlayStyle = document.getElementById("dlg-ai-play-style")?.value || "";
+        if (!playerName || !playerColor || !towerTile || !aiPlayStyle) {
+          showError("AI name, color, tower, and gameplay style are required.");
+          return;
+        }
+
+        try {
+          closeDialog();
+          await client.addAiPlayer(activeGameId, playerName, playerColor, towerTile, aiPlayStyle);
+          await showCurrentGame();
+          showStatus("AI player created.", "success");
+        } catch (error) {
+          showError(error.message);
+        }
+      }
+
       async function showCurrentGame() {
         setMainBoardMode("world");
+        configureAdminPlacementTilePicker(false);
         if (!activeGameId) {
           activeTab = "lobby";
           await showLobby();
@@ -4406,6 +5640,7 @@
         }
 
         gameState = await fetchGameState(activeGameId);
+        syncWinnerOverlayFromState(gameState);
         currentPhase = gameState.phase;
 
         if (currentPhase === "SPLIT") {
@@ -4463,11 +5698,17 @@
             `}
 
             ${isGameMaster ? `
+              <button id="btn-add-ai-player" style="margin-top:0.6rem;width:100%;">Add AI Player</button>
+            ` : ""}
+
+            ${isGameMaster ? `
               <button class="primary" id="btn-start" style="margin-top: 1rem;" ${canStartGame ? "" : "disabled"}>Start Game</button>
               <div style="margin-top:0.4rem; color:#9f8b67; font-size:0.78rem;">${canStartGame ? "You are the gamemaster." : "Every player needs a tower before the game can start."}</div>
             ` : `
               <div class="status info" style="margin-top:1rem;">Waiting for the gamemaster to start the game.</div>
             `}
+
+            ${renderStackPlacementAdminSection(players)}
           </div>
         `;
 
@@ -4480,6 +5721,13 @@
           addPlayerButton.addEventListener("click", () => openAddPlayerDialog(takenColors, takenTowers));
         }
 
+        const addAiPlayerButton = document.getElementById("btn-add-ai-player");
+        if (addAiPlayerButton) {
+          const takenColors = (gameState?.players || []).map((player) => player.color);
+          const takenTowers = (gameState?.players || []).map((player) => player.towerAssignment).filter(Boolean);
+          addAiPlayerButton.addEventListener("click", () => openAddAiPlayerDialog(takenColors, takenTowers));
+        }
+
         const copyInviteButton = document.getElementById("btn-copy-invite");
         if (copyInviteButton) {
           copyInviteButton.addEventListener("click", copyInviteLink);
@@ -4489,6 +5737,8 @@
         if (startButton) {
           startButton.addEventListener("click", () => startGame(activeGameId));
         }
+
+        bindAdminStackPlacementControls(true);
       }
 
       async function startGame(gameId) {
@@ -4722,20 +5972,45 @@
 
       async function showSplitPhase(gameId) {
         setMainBoardMode("world");
+        configureAdminPlacementTilePicker(false);
         gameState = await fetchGameState(gameId);
+        syncWinnerOverlayFromState(gameState);
         currentPhase = gameState.phase;
+
+        // Safety: if server is still in FIGHT but no contested tile exists, end combat immediately.
+        if (currentPhase === "FIGHT" && !findBattleTile(gameState)) {
+          const resolverPlayerId = getBattleResolverPlayerId();
+          if (resolverPlayerId) {
+            try {
+              await client.endPhase(activeGameId, resolverPlayerId);
+            } catch (_error) {
+              // Ignore and fall back to current state render below.
+            }
+          }
+          const refreshedState = await fetchGameState(activeGameId);
+          currentPhase = refreshedState.phase;
+          gameState = refreshedState;
+          if (currentPhase !== "FIGHT") {
+            clearBattleTransientState();
+            activeTab = "game";
+            await showCurrentGame();
+            return;
+          }
+        }
 
         const players = gameState.players || [];
         const ownPlayer = findOwnPlayer(players);
         setPanelTitle(ownPlayer?.name || "");
         const ownPlayerId = client.getPlayerId();
         const ownPlayers = ownPlayerId ? players.filter((player) => player.id === ownPlayerId) : [];
+        const canSpectateAllAiStacks = canViewAllAiStacks(players, ownPlayerId);
+        const visiblePlayers = canSpectateAllAiStacks ? players : ownPlayers;
         renderAssignedTowerMarkers(players);
         const playerById = new Map(players.map((player) => [player.id, player]));
         const activePlayer = playerById.get(gameState.activePlayer);
         const isOwnTurn = !!ownPlayerId && gameState.activePlayer === ownPlayerId;
 
-        const legions = ownPlayers.flatMap((player) =>
+        const legions = visiblePlayers.flatMap((player) =>
           (player.legions || []).map((legion) => ({
             player,
             legion,
@@ -4751,7 +6026,7 @@
             </div>
 
             <div class="panel-section" style="margin-top:1rem; padding:0.8rem;">
-              <h3 style="margin:0 0 0.6rem;">Your Stacks</h3>
+              <h3 style="margin:0 0 0.6rem;">${canSpectateAllAiStacks ? "All Stacks (AI Spectator)" : "Your Stacks"}</h3>
               ${legions.length === 0 ? `
                 <p style="margin:0;color:#9f8b67;">No stacks found.</p>
               ` : legions.map(({ player, legion }) => {
@@ -4777,7 +6052,8 @@
               }).join("")}
             </div>
 
-            <button id="btn-end-phase" class="primary" style="margin-top: 1rem;" ${isOwnTurn ? "" : "disabled"}>End Phase</button>
+            <button id="btn-end-phase" class="primary" style="margin-top:1rem;" ${isOwnTurn ? "" : "disabled"}>End Phase</button>
+            ${renderStackPlacementAdminSection(players)}
           </div>
         `;
 
@@ -4804,11 +6080,15 @@
             showError(error.message);
           }
         });
+
+        bindAdminStackPlacementControls(true);
       }
 
       async function showMovePhase(gameId) {
         setMainBoardMode("world");
+        configureAdminPlacementTilePicker(false);
         gameState = await fetchGameState(gameId);
+        syncWinnerOverlayFromState(gameState);
         currentPhase = gameState.phase;
 
         const players = gameState.players || [];
@@ -4816,6 +6096,8 @@
         setPanelTitle(ownPlayer?.name || "");
         const ownPlayerId = client.getPlayerId();
         const ownPlayers = ownPlayerId ? players.filter((player) => player.id === ownPlayerId) : [];
+        const canSpectateAllAiStacks = canViewAllAiStacks(players, ownPlayerId);
+        const visiblePlayers = canSpectateAllAiStacks ? players : ownPlayers;
         renderAssignedTowerMarkers(players);
         const playerById = new Map(players.map((player) => [player.id, player]));
         const activePlayer = playerById.get(gameState.activePlayer);
@@ -4823,7 +6105,7 @@
         const movedLegions = new Set(gameState.movedLegionsThisTurn || []);
         let selectedLegionId = null;
 
-        const legions = ownPlayers.flatMap((player) =>
+        const legions = visiblePlayers.flatMap((player) =>
           (player.legions || []).map((legion) => ({
             player,
             legion,
@@ -4831,10 +6113,16 @@
         );
 
         const moveOptionsByLegion = new Map();
+        const attackTargetsByLegion = new Map();
         if (isOwnTurn && gameState.dieRoll !== null) {
-          const occupiedTileIds = new Set(
+          const friendlyOccupiedTileIds = new Set(
             (gameState.tiles || [])
-              .filter((tile) => (tile.legions || []).length > 0)
+              .filter((tile) => (tile.legions || []).some((legion) => legion.playerId === ownPlayerId))
+              .map((tile) => tile.id)
+          );
+          const enemyOccupiedTileIds = new Set(
+            (gameState.tiles || [])
+              .filter((tile) => (tile.legions || []).some((legion) => legion.playerId !== ownPlayerId))
               .map((tile) => tile.id)
           );
 
@@ -4850,17 +6138,19 @@
                   ? response.destinations
                   : [];
                 const boardDestinations = destinations.filter(
-                  (tileId) => terrainByNumber.has(tileId) && !occupiedTileIds.has(tileId)
+                  (tileId) => terrainByNumber.has(tileId) && !friendlyOccupiedTileIds.has(tileId)
                 );
-                return [legion.id, boardDestinations];
+                const attackDestinations = boardDestinations.filter((tileId) => enemyOccupiedTileIds.has(tileId));
+                return [legion.id, boardDestinations, attackDestinations];
               } catch (error) {
-                return [legion.id, []];
+                return [legion.id, [], []];
               }
             })
           );
 
-          optionsEntries.forEach(([legionId, destinations]) => {
+          optionsEntries.forEach(([legionId, destinations, attackDestinations]) => {
             moveOptionsByLegion.set(legionId, destinations);
+            attackTargetsByLegion.set(legionId, new Set(attackDestinations));
           });
         }
 
@@ -4873,7 +6163,7 @@
             </div>
 
             <div class="panel-section" style="margin-top:1rem; padding:0.8rem;">
-              <h3 style="margin:0 0 0.6rem;">Your Stacks</h3>
+              <h3 style="margin:0 0 0.6rem;">${canSpectateAllAiStacks ? "All Stacks (AI Spectator)" : "Your Stacks"}</h3>
               ${legions.length === 0 ? `
                 <p style="margin:0;color:#9f8b67;">No stacks found.</p>
               ` : legions.map(({ player, legion }) => {
@@ -4882,6 +6172,7 @@
                   gameState.dieRoll !== null &&
                   !movedLegions.has(legion.id);
                 const quickTargets = moveOptionsByLegion.get(legion.id) || [];
+                const attackTargets = attackTargetsByLegion.get(legion.id) || new Set();
 
                 return `
                   <div data-legion-card="${legion.id}" style="border:1px solid #5d4a2e;border-radius:6px;padding:0.65rem;margin-bottom:0.55rem;background:rgba(0,0,0,0.2);">
@@ -4900,12 +6191,12 @@
                         <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.45rem;">
                           ${quickTargets.map((targetTile) => `
                             <button
-                              class="secondary"
+                              class="secondary ${attackTargets.has(targetTile) ? "move-target-attack" : ""}"
                               data-move-target-legion="${legion.id}"
                               data-move-target-source="${legion.tile}"
                               data-move-target-tile="${targetTile}"
                               style="padding:0.3rem 0.55rem; font-size:0.78rem;"
-                            >${targetTile}</button>
+                            >${attackTargets.has(targetTile) ? `${targetTile}- ATTACK` : targetTile}</button>
                           `).join("")}
                         </div>
                       </div>
@@ -4937,10 +6228,12 @@
             ` : ""}
 
             <button id="btn-end-phase-move" class="primary" style="margin-top: 1rem;" ${isOwnTurn ? "display:none;" : ""}>Waiting for Active Player...</button>
+            ${renderStackPlacementAdminSection(players)}
           </div>
         `;
 
         bindTabActions();
+        bindAdminStackPlacementControls(false);
 
         if (isOwnTurn && gameState.dieRoll === null) {
           document.getElementById("btn-roll-die")?.addEventListener("click", async () => {
@@ -4962,6 +6255,7 @@
           const clearDestinationTargets = () => {
             tileElements.forEach((polygon) => {
               polygon.removeAttribute("data-active-move-target");
+              restoreTileHoverText(polygon);
             });
             clearMovePreviewHighlights();
           };
@@ -5014,13 +6308,18 @@
             }
 
             const legalTargets = moveOptionsByLegion.get(legionId) || [];
-            renderMoveKeyMarkers(legalTargets);
+            const attackTargets = attackTargetsByLegion.get(legionId) || new Set();
+            renderMoveKeyMarkers(legalTargets, attackTargets);
             legalTargets.forEach((tileId) => {
               const target = tileElements.get(tileId);
               if (target) {
                 target.classList.add("triangle-preview-target");
+                if (attackTargets.has(tileId)) {
+                  target.classList.add("triangle-preview-target-attack");
+                }
                 target.setAttribute("data-active-move-target", "1");
                 brightenTileFill(target, 32);
+                setTileHoverText(target, buildMoveTargetHoverText(tileId, selectedLegion));
               }
             });
 
@@ -5870,6 +7169,7 @@
 
       async function showBattleBoard() {
         activeTab = "battle";
+        configureAdminPlacementTilePicker(false);
         // Allow standalone preview with no active game (e.g. ?battle=MOUNTAINS).
         const standalonePreview = !activeGameId;
         if (standalonePreview) {
@@ -5909,6 +7209,7 @@
         }
 
         gameState = await fetchGameState(activeGameId);
+        syncWinnerOverlayFromState(gameState);
         currentPhase = gameState.phase;
 
         const players = gameState.players || [];
@@ -5930,9 +7231,22 @@
           arr.push(legion);
           legionsByPlayer.set(legion.playerId, arr);
         });
-        const roleEntries = Array.from(legionsByPlayer.entries()).slice(0, 2);
-        const defenderLegion = roleEntries[0]?.[1]?.[0] || null;
-        const attackerLegion = roleEntries[1]?.[1]?.[0] || null;
+
+        // Keep role mapping deterministic so resolveBattle always receives correct legion ids.
+        const uniqueBattlePlayerIds = Array.from(legionsByPlayer.keys()).slice(0, 2);
+        const attackerPlayerId =
+          (gameState.activePlayer && legionsByPlayer.has(gameState.activePlayer)
+            ? gameState.activePlayer
+            : uniqueBattlePlayerIds[0]) || "";
+        const defenderPlayerId = uniqueBattlePlayerIds.find((id) => id !== attackerPlayerId) || "";
+
+        const attackerLegion = attackerPlayerId ? (legionsByPlayer.get(attackerPlayerId)?.[0] || null) : null;
+        const defenderLegion = defenderPlayerId ? (legionsByPlayer.get(defenderPlayerId)?.[0] || null) : null;
+        const roleEntries = [
+          [defenderPlayerId, defenderPlayerId ? (legionsByPlayer.get(defenderPlayerId) || []) : []],
+          [attackerPlayerId, attackerPlayerId ? (legionsByPlayer.get(attackerPlayerId) || []) : []],
+        ].filter(([pid, legions]) => !!pid && legions.length > 0);
+
         battleResolutionContext = {
           tileId: tileId || "",
           defenderLegionId: defenderLegion?.id || "",
@@ -5980,6 +7294,7 @@
             <div id="battle-strike-roster-host" style="margin-top:0.7rem;"></div>
             ${renderBattleBoardSvg(terrain)}
           </div>
+          ${isPreview ? renderForceBattleAdminSection(players) : ""}
           ${!isPreview ? `<div class="panel-section" style="margin-top:1rem;">
             <button id="btn-end-combat" class="primary" style="width:100%;" ${isOwnTurn ? "" : "disabled"}>End Combat Phase</button>
           </div>` : ""}
@@ -6011,6 +7326,7 @@
             };
           });
           applyBattleStacks(stacks);
+            scheduleBattleAiAutomation();
         }
 
         document.querySelectorAll(".battle-terrain-pick").forEach((btn) => {
@@ -6019,6 +7335,8 @@
             showBattleBoard();
           });
         });
+
+        document.getElementById("btn-force-battle")?.addEventListener("click", forceBattleForTest);
 
         document.getElementById("btn-end-combat")?.addEventListener("click", async () => {
           if (!ownPlayerId) { showError("No active player is registered for this client."); return; }
@@ -6037,7 +7355,9 @@
 
       async function showRecruitPhase(gameId) {
         setMainBoardMode("world");
+        configureAdminPlacementTilePicker(false);
         gameState = await fetchGameState(gameId);
+        syncWinnerOverlayFromState(gameState);
         currentPhase = gameState.phase;
 
         const players = gameState.players || [];
@@ -6045,13 +7365,15 @@
         setPanelTitle(ownPlayer?.name || "");
         const ownPlayerId = client.getPlayerId();
         const ownPlayers = ownPlayerId ? players.filter((player) => player.id === ownPlayerId) : [];
+        const canSpectateAllAiStacks = canViewAllAiStacks(players, ownPlayerId);
+        const visiblePlayers = canSpectateAllAiStacks ? players : ownPlayers;
         renderAssignedTowerMarkers(players);
         const playerById = new Map(players.map((player) => [player.id, player]));
         const activePlayer = playerById.get(gameState.activePlayer);
         const isOwnTurn = !!ownPlayerId && gameState.activePlayer === ownPlayerId;
         const movedLegionIds = new Set(gameState.movedLegionsThisTurn || []);
 
-        const legions = ownPlayers.flatMap((player) =>
+        const legions = visiblePlayers.flatMap((player) =>
           (player.legions || []).map((legion) => ({
             player,
             legion,
@@ -6118,7 +7440,7 @@
             </div>
 
             <div class="panel-section" style="margin-top:1rem; padding:0.8rem;">
-              <h3 style="margin:0 0 0.6rem;">Your Stacks</h3>
+              <h3 style="margin:0 0 0.6rem;">${canSpectateAllAiStacks ? "All Stacks (AI Spectator)" : "Your Stacks"}</h3>
               ${legions.length === 0 ? `
                 <p style="margin:0;color:#9f8b67;">No stacks found.</p>
               ` : legions.map(({ player, legion }) => {
@@ -6153,6 +7475,7 @@
             </div>
 
             <button id="btn-end-recruit" class="primary" style="margin-top:1rem;" ${isOwnTurn ? "" : "disabled"}>End Recruit Phase</button>
+            ${renderStackPlacementAdminSection(players)}
           </div>
         `;
 
@@ -6185,6 +7508,8 @@
             showError(error.message);
           }
         });
+
+        bindAdminStackPlacementControls(true);
       }
 
       function showStatus(message, type = "info") {

@@ -92,6 +92,10 @@
             <option value="#00FFFF">Cyan</option>
           </select>
         </div>
+        <div class="form-group">
+          <label for="game-key">Game Key</label>
+          <input type="text" id="game-key" placeholder="Enter game key" />
+        </div>
         <button class="primary" onclick="createGame()">Create Game</button>
       </div>
       
@@ -185,6 +189,7 @@
   window.createGame = function() {
     const nameInput = document.getElementById('player-name');
     const colorSelect = document.getElementById('player-color');
+    const keyInput = document.getElementById('game-key');
     
     if (!nameInput || !colorSelect) return;
     
@@ -203,7 +208,7 @@
     
     // Generate game ID and key
     const gameId = `game_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    gameKey = generateKey();
+    gameKey = keyInput && keyInput.value.trim() ? keyInput.value.trim() : generateKey();
     
     socket.emit('client:create-game', {
       gameId,
@@ -214,6 +219,7 @@
       } else {
         currentGame = response;
         renderTowerSelection();
+        showStatus('Game created. Share your game key with other players.', 'info');
       }
     });
   };
@@ -255,14 +261,37 @@
       }
     });
   };
-  
-  window.joinGame = function(gameId) {
+
+  window.onPlayerPickChange = function(selectEl) {
+    const opt = selectEl.options[selectEl.selectedIndex];
+    if (!opt || !opt.value) return; // "New Player" — don't overwrite
     const nameInput = document.getElementById('player-name');
+    const colorSelect = document.getElementById('player-color');
+    if (nameInput) nameInput.value = opt.dataset.name || '';
+    if (colorSelect) {
+      // Try to match an existing option; if none, set directly
+      const match = Array.from(colorSelect.options).find(o => o.value === opt.dataset.color);
+      if (match) match.selected = true;
+    }
+  };
+
+  window.joinGame = function(gameId, playerPickEl) {
+    const nameInput = document.getElementById('player-name');
+    const keyInput = document.getElementById('game-key');
     if (!nameInput) return;
-    
-    playerName = nameInput.value.trim();
-    playerColor = document.getElementById('player-color')?.value || '#FFFFFF';
-    
+
+    // If a specific player was chosen from the dropdown, use their name/color
+    let pickedPlayerName = null;
+    let pickedPlayerColor = null;
+    if (playerPickEl && playerPickEl.value) {
+      const opt = playerPickEl.options[playerPickEl.selectedIndex];
+      pickedPlayerName = opt.dataset.name || null;
+      pickedPlayerColor = opt.dataset.color || null;
+    }
+
+    playerName = pickedPlayerName || nameInput.value.trim();
+    playerColor = pickedPlayerColor || document.getElementById('player-color')?.value || '#FFFFFF';
+
     if (!playerName) {
       showStatus('Please enter a player name', 'error');
       return;
@@ -273,18 +302,28 @@
       return;
     }
     
-    // For joining, we need the game key - for now, just use a placeholder
-    gameKey = generateKey();
+    gameKey = keyInput && keyInput.value.trim() ? keyInput.value.trim() : '';
+    if (!gameKey) {
+      showStatus('Enter the game key to join', 'error');
+      return;
+    }
     
     socket.emit('client:join-game', {
       gameId,
-      gameKey
+      gameKey,
+      playerName,
+      playerColor
     }, (error, response) => {
       if (error) {
         showStatus(`Error: ${error.message || error}`, 'error');
       } else {
-        currentGame = response;
-        renderTowerSelection();
+        currentGame = response.game || response;
+        if (currentGame.phase === 'LOBBY' && !response.playerId) {
+          renderTowerSelection();
+        } else {
+          renderGameUI(currentGame);
+        }
+        showStatus('Joined game successfully', 'success');
       }
     });
   };
@@ -305,17 +344,42 @@
           </div>
         `;
       } else {
-        gamesList.innerHTML = games.map(game => `
-          <div class="game-list-item">
-            <div>
-              <div style="font-weight: bold; color: #f0e055;">${game.gameId}</div>
-              <div style="font-size: 0.8rem; color: #999;">${game.players ? game.players.length : 0} players</div>
-            </div>
-            <button style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="joinGame('${game.gameId}')">
-              Join
-            </button>
-          </div>
-        `).join('');
+        const hasInProgress = games.some(g => g.phase !== 'LOBBY');
+        gamesList.innerHTML = `
+          ${hasInProgress ? `<div style="font-size: 0.76rem; color: #aaa; margin-bottom: 0.6rem; padding: 0.5rem; border: 1px solid #444; border-radius: 4px; background: rgba(255,255,255,0.04);">
+            To rejoin an active game: enter your player name, color, and game key above, then click Rejoin.
+          </div>` : ''}
+          ${games.map(game => {
+            const inProgress = game.phase !== 'LOBBY';
+            const players = game.playerList || [];
+            const playerOptions = [
+              `<option value="">-- New Player --</option>`,
+              ...players.map((p, i) =>
+                `<option value="${i}" data-name="${p.name.replace(/"/g,'&quot;')}" data-color="${p.color}">${p.name}</option>`
+              )
+            ].join('');
+            return `
+            <div class="game-list-item" style="${inProgress ? 'border-left: 3px solid #f0e055; padding-left: 0.5rem;' : ''} flex-direction: column; align-items: stretch; gap: 0.4rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <div style="font-weight: bold; color: #f0e055;">${game.gameId}</div>
+                  <div style="font-size: 0.8rem; color: #999;">${game.players} player${game.players !== 1 ? 's' : ''} &middot; <span style="color: ${inProgress ? '#f0e055' : '#4caf50'}">${inProgress ? 'In progress' : 'Open'}</span></div>
+                </div>
+                <button style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="joinGame('${game.gameId}', this.closest('.game-list-item').querySelector('.player-pick'))">
+                  ${inProgress ? 'Rejoin' : 'Join'}
+                </button>
+              </div>
+              ${players.length > 0 ? `
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <label style="font-size: 0.75rem; color: #aaa; white-space: nowrap;">Join as:</label>
+                <select class="player-pick" style="flex: 1; font-size: 0.8rem; background: #2a2a2a; color: #eee; border: 1px solid #555; border-radius: 4px; padding: 0.2rem 0.4rem;"
+                  onchange="onPlayerPickChange(this)">
+                  ${playerOptions}
+                </select>
+              </div>` : ''}
+            </div>`;
+          }).join('')}
+        `;
       }
       
       // Refresh games list every 3 seconds

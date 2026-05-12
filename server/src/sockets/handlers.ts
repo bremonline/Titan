@@ -5,7 +5,10 @@ import {
   ServerEvents,
   CreateGameRequestSchema,
   JoinGameRequestSchema,
+  RejoinGameRequestSchema,
+  CreateReconnectTokenRequestSchema,
   AddPlayerRequestSchema,
+  AddAiPlayerRequestSchema,
   StartGameRequestSchema,
   AssignTowerRequestSchema,
   SplitLegionRequestSchema,
@@ -23,6 +26,8 @@ import {
 // ============================================================================
 
 export class SocketHandlers {
+  private socketsByClientId: Map<string, Socket> = new Map();
+
   constructor(private engine: GameEngine, private io: any) {}
 
   private ensureClientId(socket: Socket): string {
@@ -41,6 +46,9 @@ export class SocketHandlers {
    * Register all event handlers for a socket connection.
    */
   registerHandlers(socket: Socket) {
+    const clientId = this.ensureClientId(socket);
+    this.socketsByClientId.set(clientId, socket);
+
     // Lobby events
     socket.on(SOCKET_EVENTS.CLIENT.CREATE_GAME, (data, callback) =>
       this.handleCreateGame(socket, data, callback)
@@ -51,8 +59,14 @@ export class SocketHandlers {
     socket.on(SOCKET_EVENTS.CLIENT.REJOIN_GAME, (data, callback) =>
       this.handleRejoinGame(socket, data, callback)
     );
+    socket.on(SOCKET_EVENTS.CLIENT.CREATE_RECONNECT_TOKEN, (data, callback) =>
+      this.handleCreateReconnectToken(socket, data, callback)
+    );
     socket.on(SOCKET_EVENTS.CLIENT.ADD_PLAYER, (data, callback) =>
       this.handleAddPlayer(socket, data, callback)
+    );
+    socket.on(SOCKET_EVENTS.CLIENT.ADD_AI_PLAYER, (data, callback) =>
+      this.handleAddAiPlayer(socket, data, callback)
     );
     socket.on(SOCKET_EVENTS.CLIENT.START_GAME, (data, callback) =>
       this.handleStartGame(socket, data, callback)
@@ -92,6 +106,10 @@ export class SocketHandlers {
 
     // Disconnect
     socket.on(SOCKET_EVENTS.DISCONNECT, () => {
+      const disconnectedClientId = socket.data.clientId as string | undefined;
+      if (disconnectedClientId && this.socketsByClientId.get(disconnectedClientId) === socket) {
+        this.socketsByClientId.delete(disconnectedClientId);
+      }
       console.log(`[Socket] Client disconnected: ${socket.id}`);
     });
   }
@@ -153,7 +171,9 @@ export class SocketHandlers {
       const result = this.engine.joinGame(
         validated.gameId,
         validated.gameKey,
-        clientId
+        clientId,
+        validated.playerName,
+        validated.playerColor
       );
 
       if (!result) {
@@ -161,9 +181,22 @@ export class SocketHandlers {
         return;
       }
 
-      const { gameState, isGameMaster } = result;
+      const { gameState, isGameMaster, playerId, displacedClientId } = result;
       socket.join(gameState.id);
       socket.data.gameId = gameState.id;
+
+      if (displacedClientId && displacedClientId !== clientId) {
+        const displacedSocket = this.socketsByClientId.get(displacedClientId);
+        if (displacedSocket) {
+          displacedSocket.emit(SOCKET_EVENTS.SERVER.ERROR, {
+            message: "Your session was resumed in another browser",
+            code: "SESSION_TRANSFERRED",
+            gameId: gameState.id,
+          });
+          displacedSocket.disconnect(true);
+          this.socketsByClientId.delete(displacedClientId);
+        }
+      }
 
       const playerResponse: ServerEvents.PlayerJoined = {
         gameId: gameState.id,
@@ -171,7 +204,7 @@ export class SocketHandlers {
         isGameMaster,
       };
 
-      callback(null, { clientId, isGameMaster, game: this.engine.serializeGame(gameState) });
+      callback(null, { clientId, isGameMaster, playerId, game: this.engine.serializeGame(gameState) });
       this.io.to(gameState.id).emit(SOCKET_EVENTS.SERVER.PLAYER_JOINED, playerResponse);
       this.broadcastLog(gameState.id, gameState);
 
@@ -183,12 +216,13 @@ export class SocketHandlers {
 
   private handleRejoinGame(socket: Socket, data: unknown, callback: (error: any, response?: any) => void) {
     try {
-      const validated = JoinGameRequestSchema.parse(data);
+      const validated = RejoinGameRequestSchema.parse(data);
       const clientId = this.ensureClientId(socket);
       const result = this.engine.rejoinGame(
         validated.gameId,
         validated.gameKey,
-        clientId
+        clientId,
+        validated.transferToken
       );
 
       if (!result) {
@@ -216,6 +250,33 @@ export class SocketHandlers {
       console.log(`[Game] Client ${clientId} rejoined ${gameState.id}`);
     } catch (error) {
       callback({ message: "Invalid rejoin game request", error });
+    }
+  }
+
+  private handleCreateReconnectToken(socket: Socket, data: unknown, callback: (error: any, response?: any) => void) {
+    try {
+      const validated = CreateReconnectTokenRequestSchema.parse(data);
+      const clientId = this.ensureClientId(socket);
+      const result = this.engine.issueReconnectToken(
+        validated.gameId,
+        validated.gameKey,
+        clientId
+      );
+
+      if (!result) {
+        callback({ message: "Could not create reconnect token" });
+        return;
+      }
+
+      const response: ServerEvents.ReconnectTokenCreated = {
+        gameId: validated.gameId,
+        transferToken: result.transferToken,
+        expiresAt: result.expiresAt,
+      };
+
+      callback(null, response);
+    } catch (error) {
+      callback({ message: "Invalid reconnect token request", error });
     }
   }
 
@@ -252,6 +313,43 @@ export class SocketHandlers {
       this.broadcastLog(game.id, game);
     } catch (error) {
       callback({ message: "Invalid add player request", error });
+    }
+  }
+
+  private handleAddAiPlayer(socket: Socket, data: unknown, callback: (error: any, response?: any) => void) {
+    try {
+      const validated = AddAiPlayerRequestSchema.parse(data);
+      const clientId = this.ensureClientId(socket);
+      const result = this.engine.addAiPlayer(
+        validated.gameId,
+        clientId,
+        validated.playerName,
+        validated.playerColor,
+        validated.towerTile,
+        validated.aiPlayStyle
+      );
+
+      if (!result) {
+        callback({ message: "Could not add AI player (gamemaster only, color/tower used, or game already started)" });
+        return;
+      }
+
+      const { game, player } = result;
+      const response: ServerEvents.PlayerAdded = {
+        gameId: game.id,
+        player,
+        totalPlayers: game.players.size,
+      };
+
+      callback(null, response);
+      this.io.to(game.id).emit(SOCKET_EVENTS.SERVER.PLAYER_ADDED, response);
+      this.io.to(game.id).emit(SOCKET_EVENTS.SERVER.STATE_SNAPSHOT, {
+        gameId: game.id,
+        state: this.engine.serializeGame(game),
+      });
+      this.broadcastLog(game.id, game);
+    } catch (error) {
+      callback({ message: "Invalid add AI player request", error });
     }
   }
 

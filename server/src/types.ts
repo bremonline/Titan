@@ -62,6 +62,9 @@ export enum TerrainType {
   TOWER = "TOWER",
 }
 
+export const AI_PLAY_STYLES = ["Normal", "Turtle", "Agressive", "HIghland", "Lowland"] as const;
+export type AiPlayStyle = typeof AI_PLAY_STYLES[number];
+
 // ============================================================================
 // CREATURE & LEGION TYPES
 // ============================================================================
@@ -85,6 +88,7 @@ export interface Player {
   name: string;
   color: string;
   towerAssignment: TileId | null; // "100" | "200" | "300" | "400" | "500" | "600"
+  aiPlayStyle?: AiPlayStyle;
   legions: Legion[];
   score: number;
   status: "ACTIVE" | "ELIMINATED";
@@ -151,6 +155,19 @@ export namespace ClientEvents {
   export interface JoinGameRequest {
     gameId: string;
     gameKey: string;
+    playerName?: string;
+    playerColor?: string;
+  }
+
+  export interface RejoinGameRequest {
+    gameId: string;
+    gameKey: string;
+    transferToken?: string;
+  }
+
+  export interface CreateReconnectTokenRequest {
+    gameId: string;
+    gameKey: string;
   }
 
   export interface AddPlayerRequest {
@@ -158,6 +175,14 @@ export namespace ClientEvents {
     playerName: string;
     playerColor: string;
     towerTile: TileId;
+  }
+
+  export interface AddAiPlayerRequest {
+    gameId: string;
+    playerName: string;
+    playerColor: string;
+    towerTile: TileId;
+    aiPlayStyle: AiPlayStyle;
   }
 
   export interface StartGameRequest {
@@ -223,6 +248,7 @@ export namespace ServerEvents {
     gameId: string;
     phase: Phase;
     players: number;
+    playerList: Array<{ name: string; color: string }>;
     createdAt: number;
   }
 
@@ -238,6 +264,12 @@ export namespace ServerEvents {
     gameId: string;
     clientId: string;
     isGameMaster: boolean;
+  }
+
+  export interface ReconnectTokenCreated {
+    gameId: string;
+    transferToken: string;
+    expiresAt: number;
   }
 
   export interface PlayerAdded {
@@ -334,7 +366,9 @@ export const SOCKET_EVENTS = {
     CREATE_GAME: "client:create-game",
     JOIN_GAME: "client:join-game",
     REJOIN_GAME: "client:rejoin-game",
+    CREATE_RECONNECT_TOKEN: "client:create-reconnect-token",
     ADD_PLAYER: "client:add-player",
+    ADD_AI_PLAYER: "client:add-ai-player",
     START_GAME: "client:start-game",
     ASSIGN_TOWER: "client:assign-tower",
     SPLIT_LEGION: "client:split-legion",
@@ -371,8 +405,9 @@ export const SOCKET_EVENTS = {
 
 export const CreatureDefSchema = z.object({
   type: z.nativeEnum(CreatureType),
-  power: z.number().int().min(1).max(6),
-  skill: z.number().int().min(1).max(6),
+  // Titan creature powers can exceed 6 (e.g. Serpent 18), so validation must match game data.
+  power: z.number().int().min(1).max(20),
+  skill: z.number().int().min(1).max(20),
   color: z.string().regex(/^#[0-9A-F]{6}$/i),
 });
 
@@ -388,6 +423,7 @@ export const PlayerSchema = z.object({
   name: z.string().min(1).max(50),
   color: z.string().regex(/^#[0-9A-F]{6}$/i),
   towerAssignment: z.string().nullable(),
+  aiPlayStyle: z.enum(AI_PLAY_STYLES).optional(),
   legions: z.array(LegionSchema),
   score: z.number().int().min(0),
   status: z.enum(["ACTIVE", "ELIMINATED"]),
@@ -453,6 +489,19 @@ export const CreateGameRequestSchema = z.object({
 export const JoinGameRequestSchema = z.object({
   gameId: z.string(),
   gameKey: z.string().min(3).max(64),
+  playerName: z.string().min(1).max(50).optional(),
+  playerColor: z.string().regex(/^#[0-9A-F]{6}$/i).optional(),
+});
+
+export const RejoinGameRequestSchema = z.object({
+  gameId: z.string(),
+  gameKey: z.string().min(3).max(64),
+  transferToken: z.string().uuid().optional(),
+});
+
+export const CreateReconnectTokenRequestSchema = z.object({
+  gameId: z.string(),
+  gameKey: z.string().min(3).max(64),
 });
 
 export const AddPlayerRequestSchema = z.object({
@@ -460,6 +509,14 @@ export const AddPlayerRequestSchema = z.object({
   playerName: z.string().min(1).max(50),
   playerColor: z.string().regex(/^#[0-9A-F]{6}$/i),
   towerTile: z.enum(["100", "200", "300", "400", "500", "600"]),
+});
+
+export const AddAiPlayerRequestSchema = z.object({
+  gameId: z.string(),
+  playerName: z.string().min(1).max(50),
+  playerColor: z.string().regex(/^#[0-9A-F]{6}$/i),
+  towerTile: z.enum(["100", "200", "300", "400", "500", "600"]),
+  aiPlayStyle: z.enum(AI_PLAY_STYLES),
 });
 
 export const StartGameRequestSchema = z.object({
