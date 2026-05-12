@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="360" viewBox="0 0 1100 360" role="img" aria-label="BHV-051 board snapshot">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#10151d"/>
+      <stop offset="100%" stop-color="#0b0f14"/>
+    </linearGradient>
+  </defs>
+  <rect width="1100" height="360" fill="url(#bg)"/>
+
+  <rect x="18" y="18" width="280" height="324" rx="10" fill="#171d27" stroke="#374355"/>
+  <text x="36" y="48" font-family="Arial, sans-serif" font-size="16" fill="#f4dba5">Lobby</text>
+  <rect x="34" y="66" width="248" height="106" rx="8" fill="#1f2632" stroke="#3c4a62"/>
+  <text x="46" y="90" font-family="Arial, sans-serif" font-size="12" fill="#e8edf7">Create Game</text>
+  <rect x="46" y="100" width="220" height="22" rx="4" fill="#0f1520" stroke="#516079"/>
+  <rect x="46" y="130" width="220" height="22" rx="4" fill="#0f1520" stroke="#516079"/>
+  <rect x="46" y="156" width="140" height="14" rx="4" fill="#3d8bfd"/>
+
+  <rect x="34" y="188" width="248" height="138" rx="8" fill="#1f2632" stroke="#3c4a62"/>
+  <text x="46" y="212" font-family="Arial, sans-serif" font-size="12" fill="#e8edf7">Available Games</text>
+  <rect x="46" y="224" width="220" height="86" rx="6" fill="#121927" stroke="#3c4a62"/>
+  <text x="58" y="270" font-family="Arial, sans-serif" font-size="12" fill="#8ea0bf">Loading games...</text>
+
+  <rect x="318" y="18" width="764" height="324" rx="10" fill="#11161f" stroke="#374355"/>
+  <circle cx="700" cy="180" r="122" fill="#e5c55a" stroke="#6f4c1e" stroke-width="4"/>
+  <polygon points="700,84 780,130 780,230 700,276 620,230 620,130" fill="#f2d76a" stroke="#6f4c1e" stroke-width="3"/>
+  <polygon points="700,104 763,140 763,220 700,256 637,220 637,140" fill="#6e8f56" stroke="#4b613c" stroke-width="2"/>
+  <circle cx="700" cy="180" r="24" fill="#f6f1da" stroke="#3f2d12" stroke-width="2"/>
+
+  <text x="344" y="56" font-family="Arial, sans-serif" font-size="14" fill="#f0f4fb">Board shell visible while lobby controls are active</text>
+  <text x="344" y="78" font-family="Arial, sans-serif" font-size="12" fill="#a8b6cc">BHV-051 visual proof</text>
+</svg>

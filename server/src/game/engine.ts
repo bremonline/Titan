@@ -14,6 +14,7 @@ import {
   LogEntry,
   LogAction,
   ServerEvents,
+  AiPlayStyle,
 } from "../types.js";
 import { getValidDestinations } from "./movementRules.js";
 import { getEligibleRecruitments } from "./recruitmentRules.js";
@@ -24,6 +25,7 @@ import { createCreatureDef } from "./creatureDefs.js";
 // ============================================================================
 
 const TOWER_IDS: TileId[] = ["100", "200", "300", "400", "500", "600"];
+const AI_COLOR_POOL = ["#FF0000", "#0000FF", "#FFD700", "#00CC00", "#FF00FF", "#00FFFF"];
 
 const TERRAIN_MAP: Record<TileId, TerrainType> = {
   // Complete terrain mapping by tile id.
@@ -356,9 +358,72 @@ export class GameEngine {
   private games: Map<string, GameState> = new Map();
   private gameKeys: Map<string, string> = new Map();
   private playerByClientInGame: Map<string, PlayerId> = new Map();
+  private reconnectTransfers: Map<
+    string,
+    {
+      gameId: string;
+      fromClientId: string;
+      playerId: PlayerId | null;
+      isGameMaster: boolean;
+      expiresAt: number;
+    }
+  > = new Map();
+  private reconnectTokenTtlMs = 5 * 60 * 1000;
 
   private normalizeGameId(gameId: string): string {
     return gameId.trim().replace(/\s+/g, "-");
+  }
+
+  private normalizeAiPlayerName(name: string, index: number): string {
+    const trimmed = String(name || "").trim();
+    const withPrefix = trimmed.startsWith("[AI]") ? trimmed : `[AI] ${trimmed}`;
+    const fallback = `[AI] Player ${index + 1}`;
+    return withPrefix.trim() || fallback;
+  }
+
+  private playerClientKey(gameId: string, clientId: string): string {
+    return `${gameId}:${clientId}`;
+  }
+
+  private findClientIdForPlayer(gameId: string, playerId: PlayerId): string | null {
+    const prefix = `${gameId}:`;
+    for (const [key, mappedPlayerId] of this.playerByClientInGame.entries()) {
+      if (mappedPlayerId !== playerId) {
+        continue;
+      }
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
+      return key.slice(prefix.length);
+    }
+    return null;
+  }
+
+  private pruneExpiredReconnectTransfers(now: number = Date.now()): void {
+    for (const [token, transfer] of this.reconnectTransfers.entries()) {
+      if (transfer.expiresAt <= now) {
+        this.reconnectTransfers.delete(token);
+      }
+    }
+  }
+
+  private replacePlayerClientMapping(gameId: string, playerId: PlayerId, nextClientId: string): void {
+    for (const [mappingKey, mappedPlayerId] of this.playerByClientInGame.entries()) {
+      if (mappedPlayerId !== playerId) {
+        continue;
+      }
+      if (!mappingKey.startsWith(`${gameId}:`)) {
+        continue;
+      }
+      this.playerByClientInGame.delete(mappingKey);
+    }
+
+    this.playerByClientInGame.set(this.playerClientKey(gameId, nextClientId), playerId);
+  }
+
+  private getFirstAvailableTower(game: GameState): TileId | null {
+    const used = new Set(Array.from(game.players.values()).map((player) => player.towerAssignment));
+    return TOWER_IDS.find((tower) => !used.has(tower)) ?? null;
   }
 
   private createInitialLegion(game: GameState, player: Player, towerTile: TileId): Legion {
@@ -515,13 +580,143 @@ export class GameEngine {
     return false;
   }
 
+  private getShortestDistancesToTarget(targetTile: TileId): Map<TileId, number> {
+    const distances = new Map<TileId, number>();
+    const queue: Array<{ tile: TileId; distance: number }> = [{ tile: targetTile, distance: 0 }];
+    distances.set(targetTile, 0);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const neighbors = TILE_NEIGHBORS.get(current.tile) ?? [];
+
+      for (const neighbor of neighbors) {
+        if (distances.has(neighbor)) {
+          continue;
+        }
+        const nextDistance = current.distance + 1;
+        distances.set(neighbor, nextDistance);
+        queue.push({ tile: neighbor, distance: nextDistance });
+      }
+    }
+
+    return distances;
+  }
+
+  /**
+   * Check each die value from 1 to maxSteps to find the first distance where
+   * an enemy stack is encountered. Returns the distance and tile of the first enemy.
+   */
+  private getFirstEnemyOnPath(
+    game: GameState,
+    sourceTile: TileId,
+    maxSteps: number
+  ): { distance: number; tile: TileId } | null {
+    if (!game.activePlayer) {
+      return null;
+    }
+
+    for (let d = 1; d <= maxSteps; d++) {
+      const destinations = getValidDestinations(sourceTile, d);
+      for (const dest of destinations) {
+        const tileState = game.tiles.get(dest);
+        if (tileState && tileState.legions.length > 0) {
+          // Check if this tile contains any enemy stacks
+          const hasEnemy = tileState.legions.some(
+            (legion) => legion.playerId !== game.activePlayer
+          );
+          if (hasEnemy) {
+            return { distance: d, tile: dest };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  private getForcedEnemyStopTile(
+    game: GameState,
+    sourceTile: TileId,
+    targetTile: TileId,
+    steps: number
+  ): TileId | null {
+    if (steps < 2 || sourceTile === targetTile || !game.activePlayer) {
+      return null;
+    }
+
+    // If there is at least one exact path that avoids intermediate enemies,
+    // the requested destination remains legal and no forced stop is needed.
+    if (this.hasValidExactMovePath(game, sourceTile, targetTile, steps)) {
+      return null;
+    }
+
+    const distancesToTarget = this.getShortestDistancesToTarget(targetTile);
+    const queue: Array<{ tile: TileId; distance: number }> = [{ tile: sourceTile, distance: 0 }];
+    const visited = new Set<string>([`${sourceTile}|0`]);
+    const candidates: Array<{ tile: TileId; toEnemy: number; toTarget: number }> = [];
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const nextDistance = current.distance + 1;
+      if (nextDistance > steps) {
+        continue;
+      }
+
+      const neighbors = TILE_NEIGHBORS.get(current.tile) ?? [];
+      for (const neighbor of neighbors) {
+        const occupancy = this.countTileOccupancyByPlayer(game, neighbor);
+
+        if (occupancy.enemy > 0) {
+          // Only consider enemy tiles encountered before the requested destination step.
+          if (nextDistance < steps) {
+            const remainingSteps = steps - nextDistance;
+            const distanceToTarget = distancesToTarget.get(neighbor);
+            if (
+              distanceToTarget !== undefined &&
+              distanceToTarget <= remainingSteps
+            ) {
+              candidates.push({
+                tile: neighbor,
+                toEnemy: nextDistance,
+                toTarget: distanceToTarget,
+              });
+            }
+          }
+          continue;
+        }
+
+        const stateKey = `${neighbor}|${nextDistance}`;
+        if (!visited.has(stateKey)) {
+          visited.add(stateKey);
+          queue.push({ tile: neighbor, distance: nextDistance });
+        }
+      }
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    candidates.sort((a, b) => {
+      if (a.toEnemy !== b.toEnemy) {
+        return a.toEnemy - b.toEnemy;
+      }
+      if (a.toTarget !== b.toTarget) {
+        return a.toTarget - b.toTarget;
+      }
+      return a.tile.localeCompare(b.tile);
+    });
+
+    return candidates[0].tile;
+  }
+
   /**
    * Creates a new game and initializes it with the creator as the first player.
    */
   createGame(
     requestedGameId: string,
     gameKey: string,
-    gameMasterClientId: string
+    gameMasterClientId: string,
+    aiPlayers: string[] = []
   ): { gameId: string; clientId: string; isGameMaster: boolean } | null {
     const gameId = this.normalizeGameId(requestedGameId);
     if (!gameId || this.games.has(gameId)) {
@@ -547,6 +742,32 @@ export class GameEngine {
     this.games.set(gameId, gameState);
     this.gameKeys.set(gameId, gameKey);
 
+    const desiredAiCount = Math.min(5, Math.max(0, aiPlayers.length));
+    for (let index = 0; index < desiredAiCount; index += 1) {
+      const playerId = uuid();
+      const playerName = this.normalizeAiPlayerName(aiPlayers[index], index);
+      const towerTile = TOWER_IDS[index];
+      const playerColor = AI_COLOR_POOL[index % AI_COLOR_POOL.length];
+
+      const aiPlayer: Player = {
+        id: playerId,
+        name: playerName,
+        color: playerColor,
+        towerAssignment: towerTile,
+        aiPlayStyle: "Normal",
+        legions: [],
+        score: 0,
+        status: "ACTIVE",
+      };
+
+      gameState.players.set(playerId, aiPlayer);
+      this.addLog(gameState, "PLAYER_JOINED", playerId, {
+        playerName,
+        towerTile,
+        isAI: "true",
+      });
+    }
+
     this.addLog(gameState, "GAME_CREATED", null, { gameId });
 
     return { gameId, clientId: gameMasterClientId, isGameMaster: true };
@@ -558,22 +779,59 @@ export class GameEngine {
   joinGame(
     gameId: string,
     gameKey: string,
-    clientId: string
-  ): { clientId: string; gameState: GameState; isGameMaster: boolean } | null {
+    clientId: string,
+    playerName?: string,
+    playerColor?: string
+  ): {
+    clientId: string;
+    gameState: GameState;
+    isGameMaster: boolean;
+    playerId: PlayerId | null;
+    displacedClientId: string | null;
+  } | null {
     const normalizedGameId = this.normalizeGameId(gameId);
     const game = this.games.get(normalizedGameId);
     const key = this.gameKeys.get(normalizedGameId);
-    if (!game || game.phase !== Phase.LOBBY || !key || key !== gameKey) {
+    if (!game || !key || key !== gameKey) {
       return null;
     }
+
+    let playerId: PlayerId | null = null;
+    let displacedClientId: string | null = null;
+
+    const normalizedPlayerName = String(playerName || "").trim();
+    const normalizedPlayerColor = String(playerColor || "").trim().toLowerCase();
+    if (normalizedPlayerName && normalizedPlayerColor) {
+      const foundPlayer = Array.from(game.players.values()).find(
+        (player) =>
+          player.name.trim().toLowerCase() === normalizedPlayerName.toLowerCase() &&
+          player.color.trim().toLowerCase() === normalizedPlayerColor
+      );
+
+      if (!foundPlayer) {
+        return null;
+      }
+
+      playerId = foundPlayer.id;
+      displacedClientId = this.findClientIdForPlayer(normalizedGameId, playerId);
+      this.replacePlayerClientMapping(normalizedGameId, playerId, clientId);
+    } else if (game.phase !== Phase.LOBBY) {
+      return null;
+    }
+
     game.lastUpdatedAt = Date.now();
 
-    this.addLog(game, "PLAYER_JOINED", null, { clientId });
+    this.addLog(game, "PLAYER_JOINED", playerId, {
+      clientId,
+      reconnectClaim: playerId ? "true" : "false",
+    });
 
     return {
       clientId,
       gameState: game,
       isGameMaster: game.gameMasterClientId === clientId,
+      playerId,
+      displacedClientId,
     };
   }
 
@@ -584,7 +842,8 @@ export class GameEngine {
   rejoinGame(
     gameId: string,
     gameKey: string,
-    clientId: string
+    clientId: string,
+    transferToken?: string
   ): { clientId: string; gameState: GameState; isGameMaster: boolean; playerId: PlayerId | null } | null {
     const normalizedGameId = this.normalizeGameId(gameId);
     const game = this.games.get(normalizedGameId);
@@ -593,22 +852,84 @@ export class GameEngine {
       return null;
     }
 
-    const isGameMaster = game.gameMasterClientId === clientId;
-    const playerKey = `${normalizedGameId}:${clientId}`;
-    const playerId = this.playerByClientInGame.get(playerKey) ?? null;
+    let isGameMaster = game.gameMasterClientId === clientId;
+    let playerId = this.playerByClientInGame.get(this.playerClientKey(normalizedGameId, clientId)) ?? null;
+    let usedTransferToken = false;
+
+    if (!isGameMaster && !playerId && transferToken) {
+      this.pruneExpiredReconnectTransfers();
+      const transfer = this.reconnectTransfers.get(transferToken);
+      if (transfer && transfer.gameId === normalizedGameId && transfer.expiresAt > Date.now()) {
+        this.reconnectTransfers.delete(transferToken);
+        usedTransferToken = true;
+
+        if (transfer.isGameMaster) {
+          game.gameMasterClientId = clientId;
+          isGameMaster = true;
+        }
+
+        if (transfer.playerId) {
+          this.replacePlayerClientMapping(normalizedGameId, transfer.playerId, clientId);
+          playerId = transfer.playerId;
+        }
+      }
+    }
 
     if (!isGameMaster && !playerId) {
       return null;
     }
 
     game.lastUpdatedAt = Date.now();
-    this.addLog(game, "PLAYER_JOINED", playerId, { clientId, rejoin: "true" });
+    this.addLog(game, "PLAYER_JOINED", playerId, {
+      clientId,
+      rejoin: "true",
+      transferred: usedTransferToken ? "true" : "false",
+    });
 
     return {
       clientId,
       gameState: game,
       isGameMaster,
       playerId,
+    };
+  }
+
+  issueReconnectToken(
+    gameId: string,
+    gameKey: string,
+    clientId: string
+  ): { transferToken: string; expiresAt: number; playerId: PlayerId | null; isGameMaster: boolean } | null {
+    const normalizedGameId = this.normalizeGameId(gameId);
+    const game = this.games.get(normalizedGameId);
+    const key = this.gameKeys.get(normalizedGameId);
+    if (!game || !key || key !== gameKey) {
+      return null;
+    }
+
+    const isGameMaster = game.gameMasterClientId === clientId;
+    const playerId = this.playerByClientInGame.get(this.playerClientKey(normalizedGameId, clientId)) ?? null;
+    if (!isGameMaster && !playerId) {
+      return null;
+    }
+
+    this.pruneExpiredReconnectTransfers();
+    const transferToken = uuid();
+    const expiresAt = Date.now() + this.reconnectTokenTtlMs;
+
+    this.reconnectTransfers.set(transferToken, {
+      gameId: normalizedGameId,
+      fromClientId: clientId,
+      playerId,
+      isGameMaster,
+      expiresAt,
+    });
+
+    game.lastUpdatedAt = Date.now();
+    return {
+      transferToken,
+      expiresAt,
+      playerId,
+      isGameMaster,
     };
   }
 
@@ -625,7 +946,7 @@ export class GameEngine {
       return null;
     }
 
-    const key = `${normalizedGameId}:${clientId}`;
+    const key = this.playerClientKey(normalizedGameId, clientId);
     if (this.playerByClientInGame.has(key)) {
       return null;
     }
@@ -671,6 +992,65 @@ export class GameEngine {
     return { game, player };
   }
 
+  addAiPlayer(
+    gameId: string,
+    requesterClientId: string,
+    playerName: string,
+    playerColor: string,
+    towerTile: TileId,
+    aiPlayStyle: AiPlayStyle
+  ): { game: GameState; player: Player } | null {
+    const normalizedGameId = this.normalizeGameId(gameId);
+    const game = this.games.get(normalizedGameId);
+    if (!game || game.phase !== Phase.LOBBY || game.gameMasterClientId !== requesterClientId) {
+      return null;
+    }
+
+    const colorAlreadyUsed = Array.from(game.players.values()).some(
+      (player) => player.color.toLowerCase() === playerColor.toLowerCase()
+    );
+    if (colorAlreadyUsed) {
+      return null;
+    }
+
+    if (!TOWER_IDS.includes(towerTile)) {
+      return null;
+    }
+
+    const towerAlreadyUsed = Array.from(game.players.values()).some(
+      (player) => player.towerAssignment === towerTile
+    );
+    if (towerAlreadyUsed) {
+      return null;
+    }
+
+    const aiIndex = Array.from(game.players.values()).filter((player) => player.name.startsWith("[AI]")).length;
+    const playerId = uuid();
+    const normalizedName = this.normalizeAiPlayerName(playerName, aiIndex);
+
+    const player: Player = {
+      id: playerId,
+      name: normalizedName,
+      color: playerColor,
+      towerAssignment: towerTile,
+      aiPlayStyle,
+      legions: [],
+      score: 0,
+      status: "ACTIVE",
+    };
+
+    game.players.set(playerId, player);
+    game.lastUpdatedAt = Date.now();
+    this.addLog(game, "PLAYER_JOINED", playerId, {
+      playerName: normalizedName,
+      towerTile,
+      isAI: "true",
+      totalPlayers: String(game.players.size),
+    });
+
+    return { game, player };
+  }
+
   /**
    * Retrieves a game by ID.
    */
@@ -678,16 +1058,179 @@ export class GameEngine {
     return this.games.get(gameId) ?? null;
   }
 
+  private hasPendingBattles(game: GameState): boolean {
+    return Array.from(game.tiles.values()).some((tile) => {
+      if (tile.legions.length < 2) {
+        return false;
+      }
+      const playerIds = new Set(tile.legions.map((legion) => legion.playerId));
+      return playerIds.size >= 2;
+    });
+  }
+
   listActiveGames(): ServerEvents.ActiveGameSummary[] {
     return Array.from(this.games.values())
-      .filter((game) => game.phase === Phase.LOBBY)
       .map((game) => ({
         gameId: game.id,
         phase: game.phase,
         players: game.players.size,
+        playerList: Array.from(game.players.values()).map((p) => ({ name: p.name, color: p.color })),
         createdAt: game.createdAt,
       }))
       .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  listGameIds(): string[] {
+    return Array.from(this.games.keys());
+  }
+
+  getTerrainTypeForTile(tileId: TileId): TerrainType | null {
+    return TERRAIN_MAP[tileId] ?? null;
+  }
+
+  forceBattle(
+    gameId: string,
+    attackerPlayerId: PlayerId,
+    defenderPlayerId: PlayerId,
+    battleTileId: TileId
+  ): {
+    game: GameState;
+    attackerLegionId: LegionId;
+    defenderLegionId: LegionId;
+    battleTileId: TileId;
+  } | null {
+    const game = this.games.get(gameId);
+    if (!game || attackerPlayerId === defenderPlayerId) {
+      return null;
+    }
+
+    const attacker = game.players.get(attackerPlayerId);
+    const defender = game.players.get(defenderPlayerId);
+    if (!attacker || !defender || attacker.status !== "ACTIVE" || defender.status !== "ACTIVE") {
+      return null;
+    }
+
+    const attackerLegion = attacker.legions[0];
+    const defenderLegion = defender.legions[0];
+    if (!attackerLegion || !defenderLegion) {
+      return null;
+    }
+
+    const terrainType = TERRAIN_MAP[battleTileId];
+    if (!terrainType) {
+      return null;
+    }
+
+    for (const tile of game.tiles.values()) {
+      tile.legions = tile.legions.filter(
+        (legion) => legion.id !== attackerLegion.id && legion.id !== defenderLegion.id
+      );
+    }
+
+    attackerLegion.tile = battleTileId;
+    defenderLegion.tile = battleTileId;
+
+    const existingTile = game.tiles.get(battleTileId);
+    if (existingTile) {
+      existingTile.terrainType = terrainType;
+      existingTile.legions = [defenderLegion, attackerLegion];
+    } else {
+      game.tiles.set(battleTileId, {
+        id: battleTileId,
+        terrainType,
+        legions: [defenderLegion, attackerLegion],
+      });
+    }
+
+    game.phase = Phase.FIGHT;
+    game.activePlayer = attackerPlayerId;
+    game.dieRoll = null;
+    game.lastUpdatedAt = Date.now();
+
+    this.addLog(game, "PHASE_ENDED", attackerPlayerId, {
+      forcedBattle: "true",
+      battleTileId,
+      attackerPlayerId,
+      defenderPlayerId,
+      attackerLegionId: attackerLegion.id,
+      defenderLegionId: defenderLegion.id,
+    });
+
+    return {
+      game,
+      attackerLegionId: attackerLegion.id,
+      defenderLegionId: defenderLegion.id,
+      battleTileId,
+    };
+  }
+
+  placeLegionForTest(
+    gameId: string,
+    legionId: LegionId,
+    targetTile: TileId
+  ): {
+    game: GameState;
+    playerId: PlayerId;
+    legionId: LegionId;
+    sourceTile: TileId;
+    targetTile: TileId;
+  } | null {
+    const game = this.games.get(gameId);
+    if (!game) {
+      return null;
+    }
+
+    const terrainType = TERRAIN_MAP[targetTile];
+    if (!terrainType) {
+      return null;
+    }
+
+    const player = Array.from(game.players.values()).find((candidate) =>
+      candidate.legions.some((legion) => legion.id === legionId)
+    );
+    if (!player || player.status !== "ACTIVE") {
+      return null;
+    }
+
+    const legion = player.legions.find((candidate) => candidate.id === legionId);
+    if (!legion) {
+      return null;
+    }
+
+    const sourceTile = legion.tile;
+    for (const tile of game.tiles.values()) {
+      tile.legions = tile.legions.filter((candidate) => candidate.id !== legionId);
+    }
+
+    legion.tile = targetTile;
+
+    const existingTile = game.tiles.get(targetTile);
+    if (existingTile) {
+      existingTile.terrainType = terrainType;
+      existingTile.legions.push(legion);
+    } else {
+      game.tiles.set(targetTile, {
+        id: targetTile,
+        terrainType,
+        legions: [legion],
+      });
+    }
+
+    game.lastUpdatedAt = Date.now();
+    this.addLog(game, "LEGION_MOVED", player.id, {
+      legionId,
+      sourceTile,
+      targetTile,
+      adminPlacement: "true",
+    });
+
+    return {
+      game,
+      playerId: player.id,
+      legionId,
+      sourceTile,
+      targetTile,
+    };
   }
 
   clearAllGames(): number {
@@ -754,6 +1297,10 @@ export class GameEngine {
     const player = game?.players.get(playerId);
 
     if (!game || !player || game.phase !== Phase.SETUP) {
+      return null;
+    }
+
+    if (!TOWER_IDS.includes(towerTile)) {
       return null;
     }
 
@@ -997,9 +1544,31 @@ export class GameEngine {
       return null;
     }
 
-    // Destination must not already contain any stack.
+    let resolvedTargetTile = targetTile;
     const targetTileState = game.tiles.get(targetTile);
-    if (targetTileState && targetTileState.legions.length > 0) {
+
+    // Cannot move onto a friendly stack.
+    if (targetTileState?.legions.some((stack) => stack.playerId === movingPlayer.id)) {
+      return null;
+    }
+
+    // Check if there's an enemy at any distance shorter than the full die roll.
+    // If so, the legion must stop at that enemy tile, not at the requested target.
+    const firstEnemy = this.getFirstEnemyOnPath(game, sourceTile, game.dieRoll - 1);
+    if (firstEnemy) {
+      resolvedTargetTile = firstEnemy.tile;
+    }
+
+    // If a requested empty destination requires crossing an enemy stack,
+    // force the move to stop on the first blocking enemy tile.
+    if (!targetTileState || targetTileState.legions.length === 0) {
+      const forcedStopTile = this.getForcedEnemyStopTile(game, sourceTile, targetTile, game.dieRoll);
+      if (forcedStopTile) {
+        resolvedTargetTile = forcedStopTile;
+      }
+    }
+
+    if (!(resolvedTargetTile in TERRAIN_MAP)) {
       return null;
     }
 
@@ -1009,25 +1578,35 @@ export class GameEngine {
     }
 
     // Update legion's tile
-    legion.tile = targetTile;
+    legion.tile = resolvedTargetTile;
 
     // Add to target tile
-    if (!game.tiles.has(targetTile)) {
+    if (!game.tiles.has(resolvedTargetTile)) {
       const tileState: TileState = {
-        id: targetTile,
-        terrainType: TERRAIN_MAP[targetTile],
+        id: resolvedTargetTile,
+        terrainType: TERRAIN_MAP[resolvedTargetTile],
         legions: [legion],
       };
-      game.tiles.set(targetTile, tileState);
+      game.tiles.set(resolvedTargetTile, tileState);
     } else {
-      game.tiles.get(targetTile)!.legions.push(legion);
+      game.tiles.get(resolvedTargetTile)!.legions.push(legion);
     }
 
     game.lastUpdatedAt = Date.now();
     game.movedLegionsThisTurn.push(legion.id);
 
     // Find player for log
-    this.addLog(game, "LEGION_MOVED", movingPlayer?.id ?? null, { legionId, sourceTile, targetTile });
+    const moveLog: Record<string, string> = {
+      legionId,
+      sourceTile,
+      targetTile: resolvedTargetTile,
+    };
+    if (resolvedTargetTile !== targetTile) {
+      moveLog.requestedTargetTile = targetTile;
+      moveLog.forcedStopOnEnemy = "true";
+    }
+
+    this.addLog(game, "LEGION_MOVED", movingPlayer?.id ?? null, moveLog);
 
     return game;
   }
@@ -1148,6 +1727,27 @@ export class GameEngine {
       this.addLog(game, "PLAYER_ELIMINATED", killedPlayerId, { reason: "TITAN_KILLED" });
     }
 
+    const playerHasTitan = (player: Player): boolean =>
+      player.legions.some((legion) => legion.creatures.some((creature) => creature.type === CreatureType.TITAN));
+
+    // Rule: if a player has no Titan remaining, they are eliminated.
+    for (const player of game.players.values()) {
+      if (player.status !== "ACTIVE") {
+        continue;
+      }
+      if (playerHasTitan(player)) {
+        continue;
+      }
+
+      const eliminatedLegionIds = player.legions.map((l) => l.id);
+      player.status = "ELIMINATED";
+      player.legions = [];
+      for (const t of game.tiles.values()) {
+        t.legions = t.legions.filter((l) => !eliminatedLegionIds.includes(l.id));
+      }
+      this.addLog(game, "PLAYER_ELIMINATED", player.id, { reason: "TITAN_ABSENT" });
+    }
+
     const activePlayers = Array.from(game.players.values()).filter((p) => p.status === "ACTIVE");
     const gameWonByPlayerId = activePlayers.length === 1 ? activePlayers[0].id : null;
     if (gameWonByPlayerId) {
@@ -1230,7 +1830,7 @@ export class GameEngine {
       game.phase = Phase.MOVE;
       game.activePlayer = playerId;
     } else if (endingPhase === Phase.MOVE) {
-      game.phase = Phase.FIGHT;
+      game.phase = this.hasPendingBattles(game) ? Phase.FIGHT : Phase.RECRUIT;
       game.activePlayer = playerId;
     } else if (endingPhase === Phase.FIGHT) {
       game.phase = Phase.RECRUIT;
@@ -1310,6 +1910,37 @@ export class GameEngine {
       phase: game.phase,
       dieRoll: String(game.dieRoll),
       mulligan: "used",
+    });
+
+    return game;
+  }
+
+  /**
+   * Forces a specific die roll for testing. Only valid during MOVE phase.
+   * Bypasses normal random roll and ignores existing roll state.
+   */
+  forceRollForMove(gameId: string, playerId: PlayerId, forcedRoll: number): GameState | null {
+    const game = this.games.get(gameId);
+    if (!game || game.phase !== Phase.MOVE) {
+      return null;
+    }
+
+    if (!game.activePlayer || game.activePlayer !== playerId) {
+      return null;
+    }
+
+    if (forcedRoll < 1 || forcedRoll > 6 || !Number.isInteger(forcedRoll)) {
+      return null;
+    }
+
+    game.dieRoll = forcedRoll;
+    game.movedLegionsThisTurn = [];
+    game.lastUpdatedAt = Date.now();
+
+    this.addLog(game, "PHASE_ENDED", playerId, {
+      phase: game.phase,
+      dieRoll: String(game.dieRoll),
+      forced: "true",
     });
 
     return game;

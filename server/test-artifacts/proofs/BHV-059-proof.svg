@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="360" viewBox="0 0 1100 360" role="img" aria-label="BHV-059 board snapshot">
+  <rect width="1100" height="360" fill="#0d121a"/>
+
+  <rect x="18" y="18" width="320" height="324" rx="10" fill="#1a2230" stroke="#41506a"/>
+  <text x="36" y="48" font-family="Arial, sans-serif" font-size="16" fill="#f5ddb0">Game: game-456</text>
+  <rect x="36" y="62" width="284" height="28" rx="6" fill="#4c1f1f" stroke="#d14d4d"/>
+  <text x="50" y="81" font-family="Arial, sans-serif" font-size="13" fill="#ffd9d9">Phase: FIGHT</text>
+
+  <rect x="36" y="104" width="284" height="178" rx="8" fill="#111826" stroke="#3c4a62"/>
+  <circle cx="56" cy="132" r="6" fill="#ff0000"/>
+  <text x="70" y="136" font-family="Arial, sans-serif" font-size="12" fill="#e5ecf8">Astra (Tower 100)</text>
+  <circle cx="56" cy="158" r="6" fill="#00ff00"/>
+  <text x="70" y="162" font-family="Arial, sans-serif" font-size="12" fill="#e5ecf8">Boreal (Tower 200)</text>
+
+  <rect x="36" y="296" width="180" height="28" rx="6" fill="#215030" stroke="#4eb96f"/>
+  <text x="50" y="315" font-family="Arial, sans-serif" font-size="12" fill="#d5ffe1">Game started!</text>
+
+  <rect x="358" y="18" width="724" height="324" rx="10" fill="#111822" stroke="#41506a"/>
+  <circle cx="720" cy="180" r="126" fill="#e2c45a" stroke="#6f4c1e" stroke-width="4"/>
+  <polygon points="720,94 800,140 800,232 720,278 640,232 640,140" fill="#f2d76a" stroke="#6f4c1e" stroke-width="3"/>
+  <polygon points="720,112 784,148 784,224 720,260 656,224 656,148" fill="#a57b45" stroke="#5b4324" stroke-width="2"/>
+
+  <circle cx="690" cy="180" r="10" fill="#ff5a5a" stroke="#702121" stroke-width="2"/>
+  <circle cx="750" cy="180" r="10" fill="#53d86a" stroke="#1f6b33" stroke-width="2"/>
+  <line x1="700" y1="180" x2="740" y2="180" stroke="#f7f7f7" stroke-width="2"/>
+
+  <text x="382" y="52" font-family="Arial, sans-serif" font-size="14" fill="#edf3fc">FIGHT state shown with opposing stacks on the board</text>
+  <text x="382" y="74" font-family="Arial, sans-serif" font-size="12" fill="#9fb1cb">BHV-059 visual proof</text>
+</svg>

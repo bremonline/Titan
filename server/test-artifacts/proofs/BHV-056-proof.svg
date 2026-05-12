@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="360" viewBox="0 0 1100 360" role="img" aria-label="BHV-056 board snapshot">
+  <rect width="1100" height="360" fill="#0e131b"/>
+
+  <rect x="18" y="18" width="340" height="324" rx="10" fill="#181f2b" stroke="#3a4660"/>
+  <text x="36" y="50" font-family="Arial, sans-serif" font-size="16" fill="#f3dfb6">Tower Selection</text>
+
+  <g font-family="Arial, sans-serif" font-size="12">
+    <rect x="36" y="70" width="150" height="64" rx="8" fill="#4a2a2a" stroke="#c26b6b"/>
+    <text x="52" y="96" fill="#f6d7d7">Tower 100</text>
+    <text x="52" y="116" fill="#ffb4b4">Taken</text>
+
+    <rect x="194" y="70" width="150" height="64" rx="8" fill="#1f2836" stroke="#4f607d"/>
+    <text x="210" y="96" fill="#dde7f7">Tower 200</text>
+    <text x="210" y="116" fill="#9cc5ff">Available</text>
+
+    <rect x="36" y="144" width="150" height="64" rx="8" fill="#1f2836" stroke="#4f607d"/>
+    <text x="52" y="170" fill="#dde7f7">Tower 300</text>
+    <text x="52" y="190" fill="#9cc5ff">Available</text>
+
+    <rect x="194" y="144" width="150" height="64" rx="8" fill="#1f2836" stroke="#4f607d"/>
+    <text x="210" y="170" fill="#dde7f7">Tower 400</text>
+    <text x="210" y="190" fill="#9cc5ff">Available</text>
+
+    <rect x="36" y="218" width="150" height="64" rx="8" fill="#1f2836" stroke="#4f607d"/>
+    <text x="52" y="244" fill="#dde7f7">Tower 500</text>
+    <text x="52" y="264" fill="#9cc5ff">Available</text>
+
+    <rect x="194" y="218" width="150" height="64" rx="8" fill="#1f2836" stroke="#4f607d"/>
+    <text x="210" y="244" fill="#dde7f7">Tower 600</text>
+    <text x="210" y="264" fill="#9cc5ff">Available</text>
+  </g>
+
+  <rect x="378" y="18" width="704" height="324" rx="10" fill="#121822" stroke="#3a4660"/>
+  <circle cx="730" cy="180" r="128" fill="#ddc056" stroke="#6f4c1e" stroke-width="4"/>
+  <polygon points="730,92 810,138 810,230 730,276 650,230 650,138" fill="#f2d76a" stroke="#6f4c1e" stroke-width="3"/>
+  <circle cx="730" cy="180" r="16" fill="#f9f3dd" stroke="#513c1b" stroke-width="2"/>
+  <circle cx="664" cy="126" r="8" fill="#d85b5b"/>
+  <text x="676" y="131" font-family="Arial, sans-serif" font-size="11" fill="#f5caca">100 claimed</text>
+
+  <text x="402" y="52" font-family="Arial, sans-serif" font-size="14" fill="#f0f4fb">A second player was trying to select a tower.</text>
+  <text x="402" y="72" font-family="Arial, sans-serif" font-size="14" fill="#f0f4fb">You can see they were not allowed to pick the tower already taken.</text>
+  <text x="402" y="94" font-family="Arial, sans-serif" font-size="12" fill="#9fb1cb">BHV-056 visual proof</text>
+</svg>
